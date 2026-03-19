@@ -1,0 +1,577 @@
+{
+  "name": "publicCI/CDassistant",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bbeeb61b-b294-4328-a9f7-001e2a0a1920",
+              "leftValue": "={{ $json.body.object_attributes.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        96,
+        0
+      ],
+      "id": "cf4db35c-a98b-444e-a765-3e43204206c7",
+      "name": "Is job failed?"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ab7b7111-31d5-4676-8b69-dfc364d9c4b7",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -112,
+        0
+      ],
+      "id": "bf700581-5681-49ae-84d1-5e18894ba71e",
+      "name": "Get Job Events",
+      "webhookId": "ab7b7111-31d5-4676-8b69-dfc364d9c4b7",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VXuDlI7mwVgRyXLC",
+          "name": "Gitlab Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "\"\"\"\nExtract pipeline context and identify failed jobs from Pipeline Hook event.\n\"\"\"\n\nbody = _items[0][\"json\"][\"body\"]\nattrs = body.get(\"object_attributes\", {})\nproject = body.get(\"project\", {})\ncommit = body.get(\"commit\", {})\nuser = body.get(\"user\", {})\nmerge_request = body.get(\"merge_request\", {})\nbuilds = body.get(\"builds\", [])\n\n# --- Filter failed jobs (only those that actually broke the pipeline) ---\nfailed_jobs = []\nfor build in builds:\n    if build.get(\"status\") != \"failed\":\n        continue\n    if build.get(\"allow_failure\", False):\n        continue\n\n    runner = build.get(\"runner\", {})\n    environment = build.get(\"environment\", {})\n\n    failed_jobs.append({\n        \"job_id\": build.get(\"id\"),\n        \"job_name\": build.get(\"name\", \"unknown\"),\n        \"job_stage\": build.get(\"stage\", \"unknown\"),\n        \"failure_reason\": build.get(\"failure_reason\", \"unknown\"),\n        \"duration_sec\": round(build.get(\"duration\", 0), 1),\n        \"queued_duration_sec\": round(build.get(\"queued_duration\", 0), 1),\n        \"started_at\": build.get(\"started_at\", \"\"),\n        \"finished_at\": build.get(\"finished_at\", \"\"),\n        \"env_name\": environment.get(\"name\", \"\") if environment else \"\",\n        \"env_action\": environment.get(\"action\", \"\") if environment else \"\",\n        \"has_artifacts\": build.get(\"artifacts_file\", {}).get(\"filename\") is not None,\n    })\n\n# --- If no real failed jobs found, skip processing ---\nif not failed_jobs:\n    return []\n\n# --- Project & GitLab API base ---\nproject_url = project.get(\"web_url\", \"\")\ngitlab_base_url = \"/\".join(project_url.split(\"/\")[:3]) if project_url else \"https://gitlab.com\"\n\n# --- Merge Request info (if triggered by MR) ---\nmr_info = None\nif merge_request:\n    mr_info = {\n        \"mr_iid\": merge_request.get(\"iid\"),\n        \"mr_title\": merge_request.get(\"title\", \"\"),\n        \"source_branch\": merge_request.get(\"source_branch\", \"\"),\n        \"target_branch\": merge_request.get(\"target_branch\", \"\"),\n        \"mr_url\": merge_request.get(\"url\", \"\"),\n        \"mr_state\": merge_request.get(\"state\", \"\"),\n    }\n\n# --- Common pipeline context ---\npipeline_context = {\n    \"project_id\": project.get(\"id\"),\n    \"pipeline_id\": attrs.get(\"id\"),\n    \"pipeline_iid\": attrs.get(\"iid\"),\n    \"commit_sha\": attrs.get(\"sha\"),\n    \"gitlab_base_url\": gitlab_base_url,\n    \"pipeline_duration_sec\": attrs.get(\"duration\", 0),\n    \"pipeline_url\": attrs.get(\"url\", \"\"),\n    \"project_url\": project_url,\n    \"default_branch\": project.get(\"default_branch\", \"main\"),\n}\n\n# --- Output: one item per failed job ---\nresults = []\nfor job in failed_jobs:\n    results.append({\n        \"pipeline\": pipeline_context,\n        \"failed_job\": job,\n    })\n\nreturn results"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -128
+      ],
+      "id": "3796ec77-82aa-4360-84ff-97ab2e24149f",
+      "name": "Extract event data"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        384,
+        272
+      ],
+      "id": "a14e2e13-7a00-4434-a266-0cf7ba12b7d0",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.pipeline.gitlab_base_url }}/api/v4/projects/{{ $json.pipeline.project_id }}/jobs/{{ $json.failed_job.job_id }}/trace",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gitlabApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        -320
+      ],
+      "id": "09f5ff62-4d6b-46b2-8731-a264747ec92f",
+      "name": "GetJobLogs",
+      "credentials": {
+        "githubApi": {
+          "id": "w4KGDtxl69fJbR7a",
+          "name": "GitHub account"
+        },
+        "gitlabApi": {
+          "id": "bUSbwN2yMv6bEVm6",
+          "name": "GitLab account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.pipeline.gitlab_base_url }}/api/v4/projects/{{ $json.pipeline.project_id }}/repository/files/.gitlab-ci.yml/raw",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gitlabApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ref",
+              "value": "={{ $json.pipeline.commit_sha }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        48
+      ],
+      "id": "f32b5199-245f-4643-8d4f-5da5aed72c83",
+      "name": "GetCIFile",
+      "credentials": {
+        "githubApi": {
+          "id": "w4KGDtxl69fJbR7a",
+          "name": "GitHub account"
+        },
+        "gitlabApi": {
+          "id": "bUSbwN2yMv6bEVm6",
+          "name": "GitLab account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1136,
+        -144
+      ],
+      "id": "81b7537e-89e4-4540-be63-f7730d1d8e41",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json, null, 2) }}",
+        "options": {
+          "systemMessage": "You have a good understanding of CI/CD systems such as Gitlab CI, Github Actions, Jenkins, Teamcity.\nYour main task is to analyze unsuccessful jobs. You only look and analyze, without changing anything. You need to provide 1 to 3 probable causes and their solutions.\n\n## Input format\nYou will receive request in json format. \n```\n[{\n\t \"job_log\": \"Last 50 lines of failed job\"\n\t },\n\t {\"data\": \"Content .gitlab-ci.yml\"},\n\t {\"pipeline\": {}}, // information about project and pipeline\n     {\"failed_job\" {}}, // information about failed job\n},]\n```\n\n## Gitlab tools\n- Use for manipulation with projects, repositories, files, commits, merge requests\n\n## HTTP request tool\n- Use for web request\n\n## Important rules\n- Always give answer on English\n- Don't ask anything, analyze it yourself\n\n\n## Investigation suggestion\n- Always analyze job_log first\n- If you need additional  information about job get it via mcp"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1616,
+        -128
+      ],
+      "id": "54f8d4ac-d84b-4eff-8b35-4fe418ab5173",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.3-codex",
+          "mode": "list",
+          "cachedResultName": "gpt-5.3-codex"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1488,
+        80
+      ],
+      "id": "681813df-17a9-40d8-ba76-afc0cd8a12a4",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "XedjbHsqkge0ycmt",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "raw_log = _items[0][\"json\"].get(\"data\", \"\")\n\n# --- Strip ANSI escape sequences without regex ---\nclean = \"\"\ni = 0\nwhile i < len(raw_log):\n    if raw_log[i] == \"\\x1b\":\n        # Skip ESC[ ... <letter> sequences (CSI)\n        if i + 1 < len(raw_log) and raw_log[i + 1] == \"[\":\n            i += 2\n            while i < len(raw_log) and not raw_log[i].isalpha():\n                i += 1\n            i += 1  # skip the final letter\n            continue\n        # Skip ESC] ... ESC\\ sequences (OSC, used by GitLab hyperlinks)\n        elif i + 1 < len(raw_log) and raw_log[i + 1] == \"]\":\n            i += 2\n            while i < len(raw_log):\n                if raw_log[i] == \"\\x1b\" and i + 1 < len(raw_log) and raw_log[i + 1] == \"\\\\\":\n                    i += 2\n                    break\n                i += 1\n            continue\n        else:\n            i += 1\n            continue\n    clean += raw_log[i]\n    i += 1\n\n# --- Filter out section markers and empty lines ---\nlines = []\nfor line in clean.splitlines():\n    stripped = line.strip()\n    if not stripped:\n        continue\n    if stripped.startswith(\"section_start:\") or stripped.startswith(\"section_end:\"):\n        continue\n    lines.append(line)\n\n# --- Keep last 50 lines ---\nmax_lines = 50\ntotal = len(lines)\nif total > max_lines:\n    trimmed = lines[-max_lines:]\n    header = \"[... truncated \" + str(total - max_lines) + \" lines, showing last \" + str(max_lines) + \" ...]\\n\"\nelse:\n    trimmed = lines\n    header = \"\"\n\nreturn [{\n    \"job_log\": header + \"\\n\".join(trimmed),\n}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -320
+      ],
+      "id": "85c671a7-a531-411c-a957-b145d7c6d191",
+      "name": "GetLastLogLines"
+    },
+    {
+      "parameters": {
+        "url": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('URL', ``, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        1728,
+        320
+      ],
+      "id": "283ccf3d-9369-42e6-97a6-8dcdb307b91c",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://gitlab-mcp:8091/mcp",
+        "include": "selected",
+        "includeTools": [
+          "search_repositories",
+          "get_file_contents",
+          "get_merge_request",
+          "get_merge_request_diffs",
+          "list_merge_request_versions",
+          "get_merge_request_version",
+          "get_branch_diffs",
+          "list_labels",
+          "get_label",
+          "list_projects",
+          "get_project",
+          "get_namespace",
+          "list_namespaces",
+          "get_commit",
+          "get_commit_diff",
+          "list_commits",
+          "get_repository_tree",
+          "list_merge_requests",
+          "list_group_projects",
+          "list_events",
+          "get_pipeline",
+          "list_pipelines",
+          "list_pipeline_jobs",
+          "list_pipeline_trigger_jobs",
+          "get_pipeline_job",
+          "get_pipeline_job_output"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1536,
+        336
+      ],
+      "id": "6f2657bd-7d73-4120-bc08-1f01b452cd1f",
+      "name": "Gitlab MCP"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0AJFB5PV5Y",
+          "mode": "list",
+          "cachedResultName": "<your-slack-channel-name>"
+        },
+        "text": "={{ $json.output }}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        2080,
+        -128
+      ],
+      "id": "6b7a434d-be8e-41a8-b7dc-0e13eb2269ef",
+      "name": "Send a message",
+      "webhookId": "9886157f-eaa5-41fd-b31d-7aa5c4385ce5",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "5WNwfj6QcJWOjl62",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# Collect data\n* Job logs\n* Pipeline file",
+        "height": 560,
+        "width": 928,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        368,
+        -368
+      ],
+      "typeVersion": 1,
+      "id": "212cd5f6-c612-44b9-907b-83fe750b2fdc",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "result = {}\n\nfor item in _items:\n    data = item[\"json\"]\n    \n    # Item with job_log\n    if \"job_log\" in data:\n        result[\"job_log\"] = data[\"job_log\"]\n        result[\"job_log_total_lines\"] = data.get(\"job_log_total_lines\", 0)\n    \n    # Item with pipeline context and failed job info\n    if \"pipeline\" in data:\n        result[\"pipeline\"] = data[\"pipeline\"]\n        result[\"failed_job\"] = data[\"failed_job\"]\n    \n    # Item with CI config (raw YAML as string)\n    if \"data\" in data and \"pipeline\" not in data and \"job_log\" not in data:\n        result[\"ci_config\"] = data[\"data\"]\n    \n    # Item with commit diff (array of changed files)\n    if \"diff\" in data or (isinstance(data, list) and len(data) > 0 and \"diff\" in data[0]):\n        result[\"commit_diff\"] = data\n\nreturn [result]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        -128
+      ],
+      "id": "f82eca31-ed2b-4c2e-b926-dd57b8460acb",
+      "name": "FormatData"
+    },
+    {
+      "parameters": {
+        "content": "# Output Chain\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nPost generated report to Slack",
+        "height": 400,
+        "width": 432
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1952,
+        -208
+      ],
+      "typeVersion": 1,
+      "id": "431c2aec-c6ed-44a8-84c8-70b9e5f094fc",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Error analysis",
+        "height": 400,
+        "width": 592,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1328,
+        -208
+      ],
+      "typeVersion": 1,
+      "id": "9ac578ff-749c-416a-a887-15d82bb84940",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# MCP servers\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nAdd correct URLs for remote MCPs\nUse following mcp:\n* [gitlab-mcp](https://github.com/zereight/gitlab-mcp)",
+        "height": 416,
+        "width": 592,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1328,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "63e5c267-5ff5-4de1-8791-4c2168fb4e57",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "# Overview\nThis workflow helps automatically analyze the causes of build failures in Gitlab CI and propose solutions without involving DevOps engineers.\n## How it work\n1. Checks whether a job crashed.\n1. Gets logs of the crashed job and a description of the pipeline.\n1. The agent analyzes this data according to its system prompt.\n1. During the process, the agent can retrieve additional data from Gitlab and check the availability of endpoints.\n1. A report on the causes and solutions is sent to the selected Slack channel \n\n## How to use\n1. Generate webhook credentials and use it in Gitlab\n1. Add your own Rules and recommendations to system prompt\n1. Run MCP servers\n1. Choose Slack channel\n\n## Requirements:\n- OpenAI  or Anthropic API key\n- Slack API key\n- Webhook with X-Gitlab-Token \n- Gitlab Access key\n",
+        "height": 608,
+        "width": 608,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -320,
+        -736
+      ],
+      "typeVersion": 1,
+      "id": "fca3da23-d17b-4aa4-94b2-44fc256ca758",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "# Input Chain\n\n\n\n\n\n\n\n\n\n\n\n\n\nReceving pipeline event from Gitlab",
+        "height": 288,
+        "width": 448
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -176,
+        -96
+      ],
+      "typeVersion": 1,
+      "id": "b2460b44-19ef-4281-9699-889af3107091",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Job Events": {
+      "main": [
+        [
+          {
+            "node": "Is job failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is job failed?": {
+      "main": [
+        [
+          {
+            "node": "Extract event data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract event data": {
+      "main": [
+        [
+          {
+            "node": "GetJobLogs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GetCIFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "GetJobLogs": {
+      "main": [
+        [
+          {
+            "node": "GetLastLogLines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetCIFile": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "FormatData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetLastLogLines": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gitlab MCP": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormatData": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "8e672d51-6690-4191-ba9d-21166c056011",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "fe499714493cdc74663e934c47a4304142d5fdad121b92545a7b7d26f7cef28e"
+  },
+  "id": "2E16VAHgDq5sG1kI",
+  "tags": []
+}

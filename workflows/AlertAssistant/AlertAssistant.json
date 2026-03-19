@@ -1,0 +1,641 @@
+{
+  "name": "AlertAssistant",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "=You are an senior SRE assistant for a game studio infrastructure. Your main goal is to assist in the investigation of the incident indicated by the Alert.\n\n## Kubernetes Tools\nUse these to inspect cluster state: pods, deployments, ingress, services, logs, events, etc\n- Read container logs for error investigation\n- List resources across namespaces\n- Main workload is in namespace: kiss\n\n## Grafana Tools  \nUse these to query metrics, logs, dashboards, and alerts:\n- **Prometheus**: query_prometheus for PromQL queries (CPU, memory, request rates, error rates). Datasource uid: {{ $('SetVars').first().json.prometheus_uid }}\n- **Loki**: query_loki_logs for LogQL log searches. Datasource uid: {{ $('SetVars').first().json.loki_uid }}\n- **Dashboards**: search_dashboards, get_dashboard_summary to find relevant dashboards\n\n## Vector store tools\n- Read alerts rules to understand the conditions for their activation\n\n## Digitalocean tools:\n- Use if you need information about App Platform, Droplets, Kubernetes(DOKS), Networking\n\n## Github tools\n- Use this to find out if releases have been executed.\n- Search only within the organization playneta.\n\n## Critical Rules for Tool Usage\n1. **Never retry a failed tool call more than once.** If a Kubernetes resource (pod, deployment, node) is not found on the first attempt, it likely no longer exists. Do NOT retry the same query.\n2. **If any tool returns an error or empty result**, acknowledge it and move on.\n3.  Don't make any changes to anything through mcp.\n\n\n## Common Important rules\n- Don't ask anything, analyze it yourself\n\n## Investigation flow recommendations\n- Pay attention to the alert labels. They will help you understand what the problem is and where it is.\n- Study the alert description and its labels.\n- Try executing the request that triggered the alert.\n\n## Output format\n### What happened\nDescription of what happened and what happened to what\n\n### Event timeline\nDescription of events preceding the alert for more than 10 minutes\n\n### Root cause\nNo more than two root cause suggestions\n\n### Troubleshooting tips\nStep-by-step description of actions for each root cause\n\nWhen formatting your text, make sure it's easy to read in Slack."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        928,
+        112
+      ],
+      "id": "dbac538b-b899-4b55-8b99-ce62a87ef11d",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.3-codex",
+          "mode": "list",
+          "cachedResultName": "gpt-5.3-codex"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        800,
+        240
+      ],
+      "id": "7111ff84-f306-4358-89b2-c40a5f328f7b",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "XedjbHsqkge0ycmt",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://mcp-kubernetes:8089/mcp",
+        "include": "selected",
+        "includeTools": [
+          "configuration_view",
+          "events_list",
+          "namespaces_list",
+          "nodes_log",
+          "nodes_stats_summary",
+          "nodes_top",
+          "pods_get",
+          "pods_list",
+          "pods_list_in_namespace",
+          "pods_log",
+          "pods_top",
+          "resources_get",
+          "resources_list"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1056,
+        544
+      ],
+      "id": "6ca399a9-7742-4e20-8258-5fa27c3ac305",
+      "name": "K8S mcp"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://mcp-grafana:8000/mcp",
+        "include": "selected",
+        "includeTools": [
+          "generate_deeplink",
+          "get_alert_rule_by_uid",
+          "get_annotations",
+          "get_dashboard_by_uid",
+          "get_dashboard_panel_queries",
+          "get_dashboard_property",
+          "get_dashboard_summary",
+          "get_datasource_by_name",
+          "get_datasource_by_uid",
+          "get_panel_image",
+          "get_sift_analysis",
+          "get_sift_investigation",
+          "list_alert_rules",
+          "list_loki_label_names",
+          "list_loki_label_values",
+          "list_prometheus_label_names",
+          "list_prometheus_label_values",
+          "list_prometheus_metric_metadata",
+          "list_prometheus_metric_names",
+          "query_loki_logs",
+          "query_loki_patterns",
+          "query_loki_stats",
+          "query_prometheus",
+          "query_prometheus_histogram",
+          "search_dashboards"
+        ],
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        544
+      ],
+      "id": "5e3b7dfa-6f83-4998-918f-04afa764a966",
+      "name": "Grafana mcp"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://mcp-digitalocean:8090/mcp",
+        "include": "selected",
+        "includeTools": [
+          "apps-get-deployment-status",
+          "apps-get-info",
+          "apps-get-logs",
+          "apps-list",
+          "byoip-prefix-get",
+          "byoip-prefix-list",
+          "byoip-prefix-resources-get",
+          "certificate-get",
+          "certificate-list",
+          "doks-get-cluster",
+          "doks-get-cluster-upgrades",
+          "doks-get-nodepool",
+          "doks-list-options",
+          "doks-list-nodepools",
+          "doks-list-clusters",
+          "domain-get",
+          "domain-list",
+          "domain-record-list",
+          "domain-record-get",
+          "droplet-get",
+          "droplet-list",
+          "firewall-get",
+          "firewall-list",
+          "image-action-get",
+          "image-get",
+          "image-list",
+          "lb-get",
+          "lb-list",
+          "region-list",
+          "reserved-ip-list",
+          "reserved-ip-get",
+          "size-list",
+          "vpc-list",
+          "vpc-get",
+          "vpc-list-members",
+          "vpc-peering-get",
+          "vpc-peering-list"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        912,
+        544
+      ],
+      "id": "9ca07b6a-6fb0-4bc8-befa-cf2712ecdf6e",
+      "name": "Digitalocean MCP"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "alertmanager",
+        "authentication": "basicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        80,
+        112
+      ],
+      "id": "21f3a33e-693f-451c-a606-35779bc69b69",
+      "name": "Receive alerts",
+      "webhookId": "60ce83ea-e09f-4db3-a3f1-fba25e6c995a",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "abIuUqyQrUhU0c0w",
+          "name": "wehook"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookData = $input.first().json.body || $input.first().json;\n\nconst SKIP_LABELS = new Set([\n  \"alertname\", \"endpoint\", \"instance\", \"job\",\n  \"metrics_path\", \"prometheus\", \"project\", \"env\",\n]);\n\nconst LABEL_RENAME = {\n  \"grafana_board\": \"Grafana Dashboard\",\n  \"persistentvolumeclaim\": \"PVC\",\n};\n\nconst alerts = webhookData.alerts || [];\nconst results = [];\n\nfor (const alert of alerts) {\n  const status = alert.status || \"unknown\";\n  const labels = alert.labels || {};\n  const annotations = alert.annotations || {};\n  const alertname = labels.alertname || \"UnknownAlert\";\n  const fingerprint = alert.fingerprint || \"\";\n  const startsAt = alert.startsAt || \"\";\n  const generatorURL = alert.generatorURL || \"\";\n\n  const lines = [\n    `Analyze this ${status.toUpperCase()} alert.`,\n    `Alertname: ${alertname}`,\n    `Severity: ${labels.severity || \"unknown\"}`,\n  ];\n\n  for (const key of Object.keys(labels).sort()) {\n    if (SKIP_LABELS.has(key) || key === \"severity\") continue;\n    const displayKey = LABEL_RENAME[key] || key;\n    lines.push(`${displayKey}: ${labels[key]}`);\n  }\n\n  if (startsAt) lines.push(`Started At: ${startsAt}`);\n  if (generatorURL) lines.push(`Alert Source: ${generatorURL}`);\n\n  for (const key of Object.keys(annotations).sort()) {\n    const displayKey = key.replace(/_/g, \" \").replace(/\\b\\w/g, c => c.toUpperCase());\n    lines.push(`${displayKey}: ${annotations[key]}`);\n  }\n\n  const chatInput = lines.join(\"\\n\");\n  const sessionId = fingerprint\n    ? `alert-${fingerprint}`\n    : `alert-${alertname}-${labels.namespace || \"\"}-${labels.service || \"\"}`;\n\n  results.push({\n    json: {\n      action: \"sendMessage\",\n      chatInput,\n      sessionId,\n      alert_id: fingerprint,\n    },\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        112
+      ],
+      "id": "7809686c-7023-42b7-8e36-c44dbe01f858",
+      "name": "PreProcessAlerts"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Use this tool to fetch knowledge from the database. ",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "observability",
+          "mode": "list",
+          "cachedResultName": "observability"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        1360,
+        544
+      ],
+      "id": "00f1a936-5093-4095-b433-0b213ddf6bac",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "o50PYyzSFxY0V7R8",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-001"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        736
+      ],
+      "id": "6a32e809-cf33-4825-8540-de91b2281fd6",
+      "name": "Embeddings Google Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "BAV50tB4x11iSv3t",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "endpointUrl": "=http://mcp-gitlab:8091/mcp",
+        "include": "selected",
+        "includeTools": [
+          "search_repositories",
+          "get_file_contents",
+          "get_merge_request",
+          "get_merge_request_diffs",
+          "get_branch_diffs",
+          "get_merge_request_version",
+          "list_merge_request_versions",
+          "list_namespaces",
+          "get_namespace",
+          "get_project",
+          "list_projects",
+          "list_group_projects",
+          "get_repository_tree",
+          "list_merge_requests",
+          "list_commits",
+          "get_commit",
+          "get_commit_diff",
+          "list_pipelines",
+          "get_pipeline",
+          "list_pipeline_jobs",
+          "list_pipeline_trigger_jobs",
+          "get_pipeline_job",
+          "get_pipeline_job_output"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        768,
+        544
+      ],
+      "id": "5a710de1-2e38-4618-9d27-ac0795489e6f",
+      "name": "Gitlab MCP"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "channel",
+        "operation": "history",
+        "channelId": {
+          "__rl": true,
+          "value": "C053DG9S2EL",
+          "mode": "id"
+        },
+        "limit": 10,
+        "filters": {
+          "latest": ""
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        1408,
+        112
+      ],
+      "id": "50222e20-ae04-4588-b1ed-ad98de338ddb",
+      "name": "GetAlertMessages",
+      "webhookId": "f1eba008-696a-4d66-bef8-8271a86df924",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "5WNwfj6QcJWOjl62",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C053DG9S2EL",
+          "mode": "list",
+          "cachedResultName": "prod-alerts"
+        },
+        "text": "={{ $json.agentOutput }}",
+        "otherOptions": {
+          "thread_ts": {
+            "replyValues": {
+              "thread_ts": "={{ $json.thread_ts }}"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        1792,
+        112
+      ],
+      "id": "11347d4b-0fb5-4bfc-974c-9a9bd714043b",
+      "name": "SendReport",
+      "webhookId": "dd0b5cc5-26a5-46e5-a2bf-a6e5b30e981d",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "5WNwfj6QcJWOjl62",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const alertId = $('PreProcessAlerts').first().json.alert_id || '';\nlet agentOutput = \"\";\ntry {\n  const agentData = $('AI Agent').first().json;\n  agentOutput = agentData.output || \"No data\";\n} catch (e) {}\n\nconst items = $input.all();\n\nlet threadTs = '';\nlet matchedTs = '';\nlet matchedTitle = '';\n\nfor (const item of items) {\n  const msg = item.json;\n  const msgText = msg.text || '';\n  const attachments = msg.attachments || [];\n\n  if (alertId && msgText.includes(alertId)) {\n    threadTs = msg.thread_ts || msg.ts;\n    matchedTs = msg.ts;\n    matchedTitle = msgText.substring(0, 100);\n    break;\n  }\n\n  for (const att of attachments) {\n    const title = att.title || '';\n    const attText = att.text || '';\n\n    if (alertId && (title.includes(alertId) || attText.includes(alertId))) {\n      threadTs = msg.thread_ts || msg.ts;\n      matchedTs = msg.ts;\n      matchedTitle = title;\n      break;\n    }\n  }\n\n  if (threadTs) break;\n}\n\nreturn [{\n  json: {\n    thread_ts: threadTs,\n    matched_ts: matchedTs,\n    matched_title: matchedTitle,\n    alert_id: alertId,\n    agentOutput: agentOutput,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        112
+      ],
+      "id": "8c081f53-f49c-4f32-ae6d-bd1f7b2520f5",
+      "name": "FindAlert"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "72ef64c3-edd7-4ab4-b859-38f28fab3505",
+              "name": "prometheus_uid",
+              "value": "cb0069a2-5028-423c-b8a6-95bf3c9d39e7",
+              "type": "string"
+            },
+            {
+              "id": "994e2e14-d614-4c91-8897-aa234c9df98b",
+              "name": "loki_uid",
+              "value": "grafanacloud-logs",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        112
+      ],
+      "id": "2afd4eb8-9fa9-46a9-8f31-036ff8abefde",
+      "name": "SetVars"
+    },
+    {
+      "parameters": {
+        "content": "# Input chain\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nReceive and format alerts from Alertmanager",
+        "height": 352,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "51180c57-ba7d-495a-8381-21aebe08ae22",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Alert analysis",
+        "height": 352,
+        "width": 528,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        752,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "e08cf46f-f9b8-4d26-8a14-1d05d3e644a3",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n# MCP servers\nAdd correct URLs for remote MCPs\nUse following mcp:\n* [grafana-mcp](https://github.com/grafana/mcp-grafana)\n* [kubernetes-mcp-server](https://github.com/containers/kubernetes-mcp-server)\n* [digitalocean-mcp](https://github.com/digitalocean/digitalocean-mcp)\n* [gitlab-mcp](https://github.com/zereight/gitlab-mcp)\nCreate QdrantAPI credentials",
+        "height": 464,
+        "width": 896,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        736,
+        448
+      ],
+      "typeVersion": 1,
+      "id": "458f8d22-49df-4c78-a215-65550b4f4d7d",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# Output chain\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nPost generated report to Slack",
+        "height": 352,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1360,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "44309ad0-cfea-4085-87c4-73d423c27674",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "# Overview\nThis workflow helps automatically analyze alerts occurring in the infrastructure and suggest solutions even before the on-duty engineer sees the alert.\n## How it work\n1. Workflow receives alert from Alertmanager via Webhook.\n2. The variables required for operation are set\n3. Preparing a prompt for the agent containing only the data necessary for analysis\n4. The agent performs diagnostics as described in the system prompt. During operation, it can access various systems via MCP to obtain additional information.\n5. Search for a message in a Slack channel corresponding to a processed alert\n6. Send report to Slack thread.\n## How to use\n1. Generate webhook credentials and use it in Alertmanager\n2. Add Alert fingerprint into Slack message template\n3. Set variables it SetVars node\n4. Add your own Rules and recomendations to system promt\n5 Run mcp servers\n6. Choose Slack channel with alerts\n### Full guide can be found here https://www.patreon.com/posts/153231436\n## Requirements:\n- OpenAI  or Anthropic API key\n- Slack API key\n- Google Gemini API key\n- Webhook receiver in Alertmanager\n- Webhook token\n- Qdrant with token\n- Gitlab Access key\n",
+        "height": 704,
+        "width": 656,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        416
+      ],
+      "typeVersion": 1,
+      "id": "f8f27172-e960-41f9-b639-d7f02b4b2773",
+      "name": "Sticky Note4"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "GetAlertMessages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "K8S mcp": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grafana mcp": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digitalocean MCP": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receive alerts": {
+      "main": [
+        [
+          {
+            "node": "SetVars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PreProcessAlerts": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gitlab MCP": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetAlertMessages": {
+      "main": [
+        [
+          {
+            "node": "FindAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FindAlert": {
+      "main": [
+        [
+          {
+            "node": "SendReport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetVars": {
+      "main": [
+        [
+          {
+            "node": "PreProcessAlerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "3543da20-bef8-4f1f-8be1-560e82075ff5",
+  "meta": {
+    "instanceId": "fe499714493cdc74663e934c47a4304142d5fdad121b92545a7b7d26f7cef28e"
+  },
+  "id": "hATJ4H49s5vvlVRQ",
+  "tags": []
+}
