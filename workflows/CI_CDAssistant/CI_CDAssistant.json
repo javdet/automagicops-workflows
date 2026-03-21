@@ -66,7 +66,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        416,
+        576,
         -128
       ],
       "id": "3796ec77-82aa-4360-84ff-97ab2e24149f",
@@ -93,7 +93,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        624,
+        736,
         -320
       ],
       "id": "09f5ff62-4d6b-46b2-8731-a264747ec92f",
@@ -128,8 +128,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        624,
-        48
+        864,
+        64
       ],
       "id": "f32b5199-245f-4643-8d4f-5da5aed72c83",
       "name": "GetCIFile",
@@ -162,7 +162,7 @@
         "promptType": "define",
         "text": "={{ JSON.stringify($json, null, 2) }}",
         "options": {
-          "systemMessage": "You have a good understanding of CI/CD systems such as Gitlab CI, Github Actions, Jenkins, Teamcity.\nYour main task is to analyze unsuccessful jobs. You only look and analyze, without changing anything. You need to provide 1 to 3 probable causes and their solutions.\n\n## Input format\nYou will receive request in json format. \n```\n[{\n\t \"job_log\": \"Last 50 lines of failed job\"\n\t },\n\t {\"data\": \"Content .gitlab-ci.yml\"},\n\t {\"pipeline\": {}}, // information about project and pipeline\n     {\"failed_job\" {}}, // information about failed job\n},]\n```\n\n## Gitlab tools\n- Use for manipulation with projects, repositories, files, commits, merge requests\n\n## HTTP request tool\n- Use for web request\n\n## Important rules\n- Always give answer on English\n- Don't ask anything, analyze it yourself\n\n\n## Investigation suggestion\n- Always analyze job_log first\n- If you need additional  information about job get it via mcp"
+          "systemMessage": "You have a good understanding of CI/CD systems such as Gitlab CI, Github Actions, Jenkins, Teamcity.\nYour main task is to analyze unsuccessful jobs. You only look and analyze, without changing anything. You need to provide 1 to 3 probable causes and their solutions.\n\n## Input format\nYou will receive request in json format. \n```\n[{\n\t \"job_log\": \"Last 50 lines of failed job\"\n\t },\n\t {\"data\": \"Content .gitlab-ci.yml\"},\n\t {\"pipeline\": {}}, // information about project and pipeline\n     {\"failed_job\" {}}, // information about failed job\n},]\n```\n\n## Gitlab tools\n- Use for manipulation with projects, repositories, files, commits, merge requests\n- Gitlab root group name: {{ $('SetVars').first().json.gitlab_group }}\n\n## HTTP request tool\n- Use for web request\n\n## Grafana tools\n- Use it to get GitLab Runner resource consumption metrics.\n- Use this to get pod metrics and logs in case of a failed deployment\n- Prometheus datasource name: {{ $('SetVars').first().json.prometheus_name }}\n- Loki datasource name: {{ $('SetVars').first().json.loki_name }}\n\n## Critical Rules for Tool Usage\n- Don't make any changes to anything through mcp.\n\n\n## Important rules\n- Don't ask anything, analyze it yourself\n\n## Investigation suggestion\n- Always analyze job_log first\n\n\n## Output format\n### What happened\nDescription of what happened and what happened to what\n\n### Root cause\nNo more than two root cause suggestions\n\n### Troubleshooting tips\nStep-by-step description of actions for each root cause"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -208,7 +208,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        832,
+        896,
         -320
       ],
       "id": "85c671a7-a531-411c-a957-b145d7c6d191",
@@ -222,7 +222,7 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.4,
       "position": [
-        1728,
+        1808,
         320
       ],
       "id": "283ccf3d-9369-42e6-97a6-8dcdb307b91c",
@@ -265,8 +265,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
       "typeVersion": 1.2,
       "position": [
-        1536,
-        336
+        1520,
+        320
       ],
       "id": "6f2657bd-7d73-4120-bc08-1f01b452cd1f",
       "name": "Gitlab MCP"
@@ -279,7 +279,7 @@
           "__rl": true,
           "value": "C0AJFB5PV5Y",
           "mode": "list",
-          "cachedResultName": "<your-slack-channel-name>"
+          "cachedResultName": "devops-ai-tests"
         },
         "text": "={{ $json.output }}",
         "otherOptions": {}
@@ -363,7 +363,7 @@
     },
     {
       "parameters": {
-        "content": "# MCP servers\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nAdd correct URLs for remote MCPs\nUse following mcp:\n* [gitlab-mcp](https://github.com/zereight/gitlab-mcp)",
+        "content": "# MCP servers\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nAdd correct URLs for remote MCPs\nUse following mcp:\n* [gitlab-mcp](https://github.com/zereight/gitlab-mcp)\n* [grafana-mcp](https://github.com/grafana/mcp-grafana)",
         "height": 416,
         "width": 592,
         "color": 4
@@ -379,7 +379,7 @@
     },
     {
       "parameters": {
-        "content": "# Overview\nThis workflow helps automatically analyze the causes of build failures in Gitlab CI and propose solutions without involving DevOps engineers.\n## How it work\n1. Checks whether a job crashed.\n1. Gets logs of the crashed job and a description of the pipeline.\n1. The agent analyzes this data according to its system prompt.\n1. During the process, the agent can retrieve additional data from Gitlab and check the availability of endpoints.\n1. A report on the causes and solutions is sent to the selected Slack channel \n\n## How to use\n1. Generate webhook credentials and use it in Gitlab\n1. Add your own Rules and recommendations to system prompt\n1. Run MCP servers\n1. Choose Slack channel\n\n## Requirements:\n- OpenAI  or Anthropic API key\n- Slack API key\n- Webhook with X-Gitlab-Token \n- Gitlab Access key\n",
+        "content": "# Overview\nThis workflow helps automatically analyze the causes of build failures in Gitlab CI and propose solutions without involving DevOps engineers.\n## How it work\n1. Checks whether a job crashed.\n1. Gets logs of the crashed job and a description of the pipeline.\n1. The agent analyzes this data according to its system prompt.\n1. During the process, the agent can retrieve additional data from Gitlab and check the availability of endpoints.\n1. A report on the causes and solutions is sent to the selected Slack channel \n\n## How to use\n1. Generate webhook credentials and use it in Gitlab\n1. Add your own Rules and recommendations to system prompt\n1. Run MCP servers\n1. Choose Slack channel\n\n## Requirements:\n- OpenAI  or Anthropic API key\n- Slack API key\n- Webhook with X-Gitlab-Token \n- Gitlab Access key\n- Grafana Service Account token",
         "height": 608,
         "width": 608,
         "color": 5
@@ -407,6 +407,81 @@
       "typeVersion": 1,
       "id": "b2460b44-19ef-4281-9699-889af3107091",
       "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://mcp-grafana:8000/mcp",
+        "include": "selected",
+        "includeTools": [
+          "get_annotations",
+          "get_annotation_tags",
+          "get_dashboard_by_uid",
+          "get_dashboard_panel_queries",
+          "get_dashboard_property",
+          "get_dashboard_summary",
+          "get_datasource",
+          "get_panel_image",
+          "list_datasources",
+          "list_loki_label_names",
+          "list_loki_label_values",
+          "list_prometheus_label_names",
+          "list_prometheus_label_values",
+          "list_prometheus_metric_metadata",
+          "list_prometheus_metric_names",
+          "query_loki_logs",
+          "query_loki_patterns",
+          "query_loki_stats",
+          "query_prometheus",
+          "query_prometheus_histogram",
+          "search_dashboards",
+          "search_folders"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1664,
+        320
+      ],
+      "id": "3dc3b6fe-eba2-4b91-908e-4f86ef753f60",
+      "name": "MCP Grafana"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bc66cc19-c97c-4252-bb84-a0c81806565c",
+              "name": "prometheus_name",
+              "value": "dev",
+              "type": "string"
+            },
+            {
+              "id": "e9992949-2cc4-4341-873f-df6c88940027",
+              "name": "loki_name",
+              "value": "grafanacloud-logs",
+              "type": "string"
+            },
+            {
+              "id": "8fd89221-20b5-4013-b89c-bebfd2a509dc",
+              "name": "grafana_group",
+              "value": "TL",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        400,
+        -128
+      ],
+      "id": "f9524ed0-d8ba-4982-a97d-934653899328",
+      "name": "SetVars"
     }
   ],
   "pinData": {},
@@ -426,7 +501,7 @@
       "main": [
         [
           {
-            "node": "Extract event data",
+            "node": "SetVars",
             "type": "main",
             "index": 0
           }
@@ -559,6 +634,28 @@
           }
         ]
       ]
+    },
+    "MCP Grafana": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetVars": {
+      "main": [
+        [
+          {
+            "node": "Extract event data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -567,7 +664,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "8e672d51-6690-4191-ba9d-21166c056011",
+  "versionId": "87124211-5d40-4cf8-a9c6-7b965ee202c4",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "fe499714493cdc74663e934c47a4304142d5fdad121b92545a7b7d26f7cef28e"
