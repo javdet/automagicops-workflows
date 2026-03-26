@@ -4,10 +4,10 @@ A collection of ready-to-use [n8n](https://n8n.io/) workflow templates designed 
 
 ## Workflows
 
-| Workflow | Description |
-|----------|-------------|
-| [Alert Assistant](workflows/AlertAssistant/README.md) | Automatically analyzes infrastructure alerts from Alertmanager and suggests solutions before an on-call engineer even sees them. |
-| [CI/CD Assistant](workflows/CI_CDAssistant/README.md) | Analyzes the causes of CI/CD build failures in GitLab and proposes fixes without involving DevOps engineers. |
+| Workflow | Description | n8n Template |
+|----------|-------------|:------------:|
+| [Alert Assistant](workflows/AlertAssistant/README.md) | Automatically analyzes infrastructure alerts from Alertmanager and suggests solutions before an on-call engineer even sees them. | X |
+| [CI/CD Assistant](workflows/CI_CDAssistant/README.md) | Analyzes the causes of CI/CD build failures in GitLab and proposes fixes without involving DevOps engineers. | [Download](https://creators.n8n.io/workflows/14129) |
 
 ## License
 
