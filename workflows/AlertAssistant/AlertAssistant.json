@@ -331,7 +331,7 @@
           "__rl": true,
           "value": "C053DG9S2EL",
           "mode": "list",
-          "cachedResultName": "prod-alerts"
+          "cachedResultName": "alerts"
         },
         "text": "={{ $json.agentOutput }}",
         "otherOptions": {
@@ -465,7 +465,7 @@
     },
     {
       "parameters": {
-        "content": "# Overview\nThis workflow helps automatically analyze alerts occurring in the infrastructure and suggest solutions even before the on-duty engineer sees the alert.\n## How it work\n1. Workflow receives alert from Alertmanager via Webhook.\n2. The variables required for operation are set\n3. Preparing a prompt for the agent containing only the data necessary for analysis\n4. The agent performs diagnostics as described in the system prompt. During operation, it can access various systems via MCP to obtain additional information.\n5. Search for a message in a Slack channel corresponding to a processed alert\n6. Send report to Slack thread.\n## How to use\n1. Generate webhook credentials and use it in Alertmanager\n2. Add Alert fingerprint into Slack message template\n3. Set variables it SetVars node\n4. Add your own Rules and recomendations to system promt\n5 Run mcp servers\n6. Choose Slack channel with alerts\n### Full guide can be found here https://www.patreon.com/posts/153231436\n## Requirements:\n- OpenAI  or Anthropic API key\n- Slack API key\n- Google Gemini API key\n- Webhook receiver in Alertmanager\n- Webhook token\n- Qdrant with token\n- Gitlab Access key\n",
+        "content": "# Overview\nThis workflow helps automatically analyze alerts occurring in the infrastructure and suggest solutions even before the on-duty engineer sees the alert.\n## How It Works\nThe workflow receives an alert from Alertmanager via Webhook.\nThe variables required for operation are set.\nA prompt is prepared for the agent containing only the data necessary for analysis.\nThe agent performs diagnostics as described in the system prompt. During operation, it can access various systems via MCP to obtain additional information.\nA message in a Slack channel corresponding to the processed alert is found.\nA report is sent to the Slack thread.\n## How to Use\nGenerate webhook credentials and use them in Alertmanager.\nAdd the alert fingerprint to the Slack message template.\nSet variables in the SetVars node.\nAdd your own rules and recommendations to the system prompt.\nRun MCP servers.\nChoose the Slack channel with alerts.\n## Requirements:\n- OpenAI  or Anthropic API key\n- Slack API key\n- Google Gemini API key\n- Webhook receiver in Alertmanager\n- Webhook token\n- Qdrant with token\n- Gitlab Access key\n",
         "height": 704,
         "width": 656,
         "color": 5
@@ -632,7 +632,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "3543da20-bef8-4f1f-8be1-560e82075ff5",
+  "versionId": "81480c98-aaa6-4f7a-a447-7f3473461613",
   "meta": {
     "instanceId": "fe499714493cdc74663e934c47a4304142d5fdad121b92545a7b7d26f7cef28e"
   },
