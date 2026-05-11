@@ -1,0 +1,201 @@
+
+{
+  "name": "ErrorReporter",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        592
+      ],
+      "id": "b0bfd87c-b37a-4abe-9f7b-e9ea051c160b",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.n8n_base_url }}{{ $('Config').first().json.n8n_api_path }}/{{ $('Error Trigger').first().json.execution.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "includeData",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        592
+      ],
+      "id": "96fadbca-3e26-408c-b874-8f751bf5c2be",
+      "name": "Get Execution Details",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "lzExQhnX0N2rxaL9",
+          "name": "n8n Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a Mattermost-ready error message from Error Trigger metadata\n// + the original execution data fetched via n8n public API.\n//\n// Strategy for finding thread context (channel_id, root_id):\n//   1. SetVars output (already has reply_root_id pre-computed)\n//   2. Read Incident Context output\n//   3. Trigger output (When Executed by Another Workflow)\n//   4. Fallback channel from Config (no thread)\n\nconst errorMeta = $('Error Trigger').first().json || {};\nconst exec = errorMeta.execution || {};\nconst wf = errorMeta.workflow || {};\nconst cfg = $('Config').first().json || {};\n\nconst apiResp = $input.first().json || {};\nconst runData = (apiResp.data && apiResp.data.resultData && apiResp.data.resultData.runData) || {};\n\n// Helper: read first item.json from a node's first run\nfunction nodeOutput(nodeName) {\n  const runs = runData[nodeName];\n  if (!runs || !runs.length) return null;\n  const items = runs[0] && runs[0].data && runs[0].data.main && runs[0].data.main[0];\n  return items && items[0] ? items[0].json : null;\n}\n\n// Pull context from the most-downstream node available\nconst setVars = nodeOutput('SetVars');\nconst incident = nodeOutput('Read Incident Context');\nconst trigger = nodeOutput('When Executed by Another Workflow');\nconst ctx = setVars || incident || trigger || {};\n\n// Re-derive reply_root_id when SetVars did not run (early failure)\nconst replyRootId = ctx.reply_root_id\n  || (ctx.is_thread ? ctx.thread_root_id : ctx.post_id)\n  || '';\nconst channelId = ctx.channel_id || cfg.fallback_channel_id;\nconst hasThread = Boolean(ctx.channel_id && replyRootId);\n\n// Truncate error message to keep Mattermost post readable\nfunction truncate(s, n) {\n  if (!s) return '';\n  return s.length > n ? s.slice(0, n) + '…' : s;\n}\n\nconst errMsg = truncate(exec.error && exec.error.message, 1500) || 'Unknown error';\nconst lastNode = exec.lastNodeExecuted || 'unknown node';\nconst execUrl = exec.url || '';\nconst wfName = wf.name || 'unknown workflow';\nconst execMode = exec.mode || '';\n\nconst lines = [\n  `:rotating_light: **${wfName}** execution failed`,\n  '',\n  `**Failed node:** \\`${lastNode}\\``,\n  `**Error:**`,\n  '```',\n  errMsg,\n  '```',\n];\n\nif (execUrl) {\n  lines.push(`**Execution:** [open in n8n](${execUrl})`);\n}\nif (execMode) {\n  lines.push(`**Mode:** ${execMode}`);\n}\nif (ctx.user_name) {\n  lines.push(`**Original request from:** @${ctx.user_name}${ctx.channel_name ? ' in #' + ctx.channel_name : ''}`);\n}\nif (!hasThread) {\n  lines.push('');\n  lines.push('_Note: thread context could not be recovered — posting to fallback channel._');\n}\n\nreturn [{\n  json: {\n    channel_id: channelId,\n    root_id: replyRootId,\n    message: lines.join('\\n'),\n    has_thread_context: hasThread,\n    debug: {\n      execution_id: exec.id,\n      workflow_id: wf.id,\n      source: setVars ? 'SetVars' : (incident ? 'Read Incident Context' : (trigger ? 'Trigger' : 'fallback')),\n    },\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        592
+      ],
+      "id": "e57950f9-9c90-4615-8a77-6a697203a828",
+      "name": "Extract Thread Context"
+    },
+    {
+      "parameters": {
+        "channelId": "={{ $json.channel_id }}",
+        "message": "=I couldn't complete this. The team will be notified and will fix it.",
+        "attachments": [],
+        "otherOptions": {
+          "root_id": "={{ $json.root_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.mattermost",
+      "typeVersion": 1,
+      "position": [
+        896,
+        592
+      ],
+      "id": "51f6b985-3c34-44e9-999e-1fc1e2d354f4",
+      "name": "Post Error to Mattermost",
+      "credentials": {
+        "mattermostApi": {
+          "id": "VuYowkkUoLxihLrh",
+          "name": "Mattermost account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## ErrorReporter\n\nGeneric error handler for n8n sub-workflows that originate from a Mattermost message (for example CICDAssistant, IncidentAssistant, or your own parent workflows).\n\n### Wiring\nAttach this workflow as Error Workflow in the target workflow's Settings → Error Workflow.\n\n### How it recovers thread context\nError Trigger gets only execution metadata. We re-fetch the failed execution via n8n public API (`GET /api/v1/executions/{id}?includeData=true`) and read `channel_id` + `reply_root_id` from the latest available node output (priority: SetVars → Read Incident Context → Trigger → fallback).\n\n### Required credentials\n1. **HTTP Header Auth** — name suggestion `n8n API`. Header: `X-N8N-API-KEY`, value: your n8n API key (Settings → n8n API).\n2. **Mattermost** — same credential the parent workflows already use.\n\n### Config defaults\nSet the **Config** node to match your environment:\n- `n8n_base_url` — your n8n instance base URL (e.g. `https://<your-n8n-host>` or internal service URL).\n- `fallback_channel_id` — Mattermost channel ID for alerts when thread context cannot be recovered (`<your-mattermost-fallback-channel-id>`).",
+        "height": 540,
+        "width": 600
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "8e94dfb5-e0f5-4350-9a64-b43546daab87",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c0000001-0000-0000-0000-000000000001",
+              "name": "n8n_base_url",
+              "value": "https://<your-n8n-host>",
+              "type": "string"
+            },
+            {
+              "id": "c0000001-0000-0000-0000-000000000002",
+              "name": "fallback_channel_id",
+              "value": "<your-mattermost-fallback-channel-id>",
+              "type": "string"
+            },
+            {
+              "id": "c0000001-0000-0000-0000-000000000003",
+              "name": "n8n_api_path",
+              "value": "/api/v1/executions",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        592
+      ],
+      "id": "5912c5c1-1c1a-464f-ad9f-886bfdb26cb0",
+      "name": "Config"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Execution Details": {
+      "main": [
+        [
+          {
+            "node": "Extract Thread Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Thread Context": {
+      "main": [
+        [
+          {
+            "node": "Post Error to Mattermost",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Execution Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "81acbe63-8752-45bd-b88b-8f555741bd4a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "692a4531fef66763dc9fefd13abab9be42c96948d0e43fd67b83edc1d09e2ea4"
+  },
+  "id": "ZYF7RuDQu9hWhPIB",
+  "tags": []
+}
