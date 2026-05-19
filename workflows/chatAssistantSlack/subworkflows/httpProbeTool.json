@@ -1,0 +1,72 @@
+{
+  "name": "httpProbeTool",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"url\": \"https://example.com\",\n  \"method\": \"GET\",\n  \"timeout_ms\": 10000\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        80,
+        416
+      ],
+      "id": "cf67db37-6a92-4af3-ab8d-a8638b99fa8a",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safe HTTP probe tool for AI Agent.\n// Always returns a structured result — never throws.\n// Distinguishes network errors (unreachable, timeout, DNS) from HTTP errors (4xx/5xx).\n\nconst input = $input.first().json;\nconst url = input.url;\nconst method = (input.method || 'GET').toUpperCase();\n// Hard cap timeout at 15s so the agent never waits longer\nconst timeoutMs = Math.min(Number(input.timeout_ms) || 10000, 15000);\n\nif (!url || typeof url !== 'string') {\n  return [{ json: {\n    ok: false,\n    error_type: 'invalid_input',\n    message: 'url parameter is required and must be a string',\n    url: null\n  }}];\n}\n\n// Basic URL validation — reject non-http(s) schemes early\nif (!/^https?:\\/\\//i.test(url)) {\n  return [{ json: {\n    ok: false,\n    error_type: 'invalid_input',\n    message: 'url must start with http:// or https://',\n    url\n  }}];\n}\n\nconst controller = new AbortController();\nconst timer = setTimeout(() => controller.abort(), timeoutMs);\nconst started = Date.now();\n\ntry {\n  const response = await fetch(url, {\n    method,\n    signal: controller.signal,\n    redirect: 'follow',\n    headers: { 'User-Agent': 'n8n-devops-assistant/1.0' }\n  });\n  clearTimeout(timer);\n\n  const elapsed = Date.now() - started;\n\n  // Limit body size to avoid flooding the agent context window\n  let body = '';\n  try {\n    const rawBody = await response.text();\n    body = rawBody.length > 2000\n      ? rawBody.slice(0, 2000) + `\\n... [truncated, total ${rawBody.length} bytes]`\n      : rawBody;\n  } catch (bodyErr) {\n    body = `[could not read body: ${bodyErr.message}]`;\n  }\n\n  return [{ json: {\n    ok: response.ok,\n    error_type: null,\n    status: response.status,\n    status_text: response.statusText,\n    url: response.url,\n    final_url: response.url !== url ? response.url : undefined,\n    elapsed_ms: elapsed,\n    body,\n    note: response.ok\n      ? 'Host reachable and responded successfully.'\n      : `Host reachable but returned HTTP ${response.status}. This may be the root cause of the CI failure.`\n  }}];\n} catch (err) {\n  clearTimeout(timer);\n  const elapsed = Date.now() - started;\n\n  // Classify the failure so the agent can reason about it\n  let errorType = 'unknown';\n  let humanMessage = err.message;\n\n  if (err.name === 'AbortError') {\n    errorType = 'timeout';\n    humanMessage = `Request timed out after ${timeoutMs}ms. Host is unreachable or extremely slow.`;\n  } else if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(err.message)) {\n    errorType = 'dns_failure';\n    humanMessage = 'DNS resolution failed. The hostname does not exist or is not resolvable.';\n  } else if (/ECONNREFUSED/i.test(err.message)) {\n    errorType = 'connection_refused';\n    humanMessage = 'Connection refused. The host is up but nothing is listening on this port.';\n  } else if (/ECONNRESET|EPIPE/i.test(err.message)) {\n    errorType = 'connection_reset';\n    humanMessage = 'Connection reset by peer.';\n  } else if (/certificate|SSL|TLS|self-signed|unable to verify/i.test(err.message)) {\n    errorType = 'tls_error';\n    humanMessage = `TLS/SSL error: ${err.message}`;\n  } else if (/ETIMEDOUT/i.test(err.message)) {\n    errorType = 'timeout';\n    humanMessage = 'Socket timeout — host did not respond in time.';\n  }\n\n  return [{ json: {\n    ok: false,\n    error_type: errorType,\n    status: null,\n    url,\n    elapsed_ms: elapsed,\n    message: humanMessage,\n    note: 'This is likely the root cause of the CI failure — the dependency is not fetchable from the runner network.'\n  }}];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        416
+      ],
+      "id": "77c501de-cb18-4efa-a2c7-684e421dd75b",
+      "name": "Safe HTTP Probe"
+    },
+    {
+      "parameters": {
+        "content": "## httpProbeTool\n\nSafe URL reachability probe for AI Agent.\n\n**Input:**\n- `url` (required) — full URL to probe\n- `method` (optional) — default GET, HEAD is faster for reachability-only checks\n- `timeout_ms` (optional) — default 10000, max 15000\n\n**Output:** always structured JSON, never throws.\n- `ok: true` → host reachable, HTTP 2xx\n- `ok: false, error_type: 'timeout' | 'dns_failure' | 'connection_refused' | 'tls_error' | 'connection_reset'` → network-level failure (likely root cause for CI dependency errors)\n- `ok: false, status: 4xx/5xx` → host reachable but HTTP error\n\n**How to use:**\nConnect to `devopsCICDAssistant` agent via `Call n8n Workflow Tool` (NOT HTTP Request Tool). This way sub-workflow catches all network errors internally and agent never crashes on unreachable hosts.",
+        "height": 480,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        -192
+      ],
+      "typeVersion": 1,
+      "id": "668513e9-76fa-4ea2-ab29-442f5bea4956",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Safe HTTP Probe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ad99978c-5a6b-4a59-a595-f02b4f5d4151",
+  "meta": {
+    "instanceId": "692a4531fef66763dc9fefd13abab9be42c96948d0e43fd67b83edc1d09e2ea4"
+  },
+  "id": "wn3FTJokChXxUlQk",
+  "tags": []
+}

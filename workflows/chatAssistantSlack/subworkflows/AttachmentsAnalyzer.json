@@ -1,0 +1,846 @@
+{
+  "name": "AttachmentsAnalyzer",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Overview\n\nSubworkflow for analyzing Slack attachments before passing them to the AI Agent.\n\n## Per-attachment behavior\n- **Image** (mime starts with `image/`, size ≤ `MAX_IMAGE_SIZE_BYTES`): downloaded and analyzed by OpenAI vision model.\n- **Text small** (text-like by mime/extension, size ≤ `MAX_TEXT_SIZE_BYTES`): downloaded as plain text and inlined into the context block (with line count check ≤ `MAX_TEXT_LINES`).\n- **Text too large** (text-like, exceeds byte or line limit): replaced with a \"too big\" marker so the agent asks the user for the relevant excerpt.\n- **Other** (binaries, oversized images, unknown): replaced with a generic \"not analyzed\" marker.\n\n## Setup checklist\n1. Set `SLACK_API_BASE_URL` in the Config node (default for Slack Cloud: `https://slack.com/api`).\n2. Create an `HTTP Header Auth` credential called \"Slack token\" with:\n   - Name: `Authorization`\n   - Value: `Bearer <your_personal_access_token>`\n3. Attach this credential to all three HTTP Request nodes (Get file info, Download file, Download text file).\n4. Attach your OpenAI credential to the \"OpenAI: Analyze Image\" node.\n5. Tune in Config: `VISION_MODEL` (OpenAI vision model id; the Analyze Image node reads it from Config), `MAX_IMAGE_SIZE_BYTES`, `MAX_TEXT_SIZE_BYTES`, `MAX_TEXT_LINES`.\n\n## Notes\n- The IF guard short-circuits when `file_ids` is empty so the parent workflow can call this subworkflow unconditionally.\n- Classification by mime + extension catches `.log` files served as `application/octet-stream`.\n- Final output is always a single item with the same shape — safe to consume in the parent.",
+        "height": 544,
+        "width": 1336,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "0c6b3eb4-862c-481c-91e4-791be621c616",
+      "name": "About"
+    },
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"file_ids\": [\"x4t1k7example1\", \"9bzqmexample2\"]\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        64,
+        848
+      ],
+      "id": "896d787e-5a7d-4054-bffc-7a108a17f252",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1f00001-0000-0000-0000-000000000001",
+              "name": "SLACK_API_BASE_URL",
+              "value": "https://slack.com/api",
+              "type": "string"
+            },
+            {
+              "id": "c1f00001-0000-0000-0000-000000000002",
+              "name": "VISION_MODEL",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "c1f00001-0000-0000-0000-000000000003",
+              "name": "MAX_IMAGE_SIZE_BYTES",
+              "value": 20971520,
+              "type": "number"
+            },
+            {
+              "id": "c1f00001-0000-0000-0000-000000000004",
+              "name": "MAX_TEXT_SIZE_BYTES",
+              "value": 65536,
+              "type": "number"
+            },
+            {
+              "id": "c1f00001-0000-0000-0000-000000000005",
+              "name": "MAX_TEXT_LINES",
+              "value": 300,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        256,
+        848
+      ],
+      "id": "51d343de-a7ff-474a-bfa9-d5ae7f0ee0b1",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "if00001-0000-0000-0000-000000000001",
+              "leftValue": "={{ ($json.file_ids || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        848
+      ],
+      "id": "bec34c9d-644f-4c49-8559-da21451bfee2",
+      "name": "Has attachments?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "se000001-0000-0000-0000-000000000001",
+              "name": "attachments_context",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "se000001-0000-0000-0000-000000000002",
+              "name": "attachments_count",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        656,
+        1104
+      ],
+      "id": "3fb52c1b-22a7-4f90-a5d0-d29933655426",
+      "name": "Empty result"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split incoming file_ids array into one item per file_id.\n// The IF guard upstream guarantees at least one id; defensive check kept.\n\nconst data = $input.first().json;\nconst ids = Array.isArray(data.file_ids) ? data.file_ids : [];\n\nreturn ids.map((file_id, idx) => ({\n  json: {\n    file_id,\n    file_index: idx\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        656
+      ],
+      "id": "3b608c1a-d96d-48bb-8b00-0488a5db6d03",
+      "name": "Split file_ids"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.SLACK_API_BASE_URL }}/files.info",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "value": "={{ $json.file_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        912,
+        656
+      ],
+      "id": "2e3d3aa9-e25e-4cac-9c47-d3c5eb96f3a1",
+      "name": "Get file info",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3MVccyR2itwKR8uP",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Normalize Slack files.info response and classify the attachment.\n// Slack returns { ok, file: {...} }. Map to a flat shape so downstream\n// markers/downloads/formatters keep working without changes.\n\nconst raw = $input.item.json;\nconst fileInfo = raw && raw.file ? {\n  id: raw.file.id,\n  name: raw.file.name || raw.file.title || 'unnamed',\n  mime_type: (raw.file.mimetype || '').toLowerCase(),\n  size: Number(raw.file.size) || 0,\n  url_private_download: raw.file.url_private_download || raw.file.url_private || ''\n} : raw;\n\nconst config = $('Config').first().json;\n\nconst mimeType = (fileInfo.mime_type || '').toLowerCase();\nconst fileName = fileInfo.name || '';\nconst size = Number(fileInfo.size) || 0;\n\nconst dotIdx = fileName.lastIndexOf('.');\nconst ext = dotIdx >= 0 ? fileName.slice(dotIdx + 1).toLowerCase() : '';\n\nconst TEXT_EXTENSIONS = new Set([\n  'log', 'txt', 'out', 'err',\n  'json', 'ndjson', 'jsonl', 'yaml', 'yml', 'xml', 'csv', 'tsv', 'toml',\n  'md', 'markdown', 'rst', 'conf', 'cfg', 'ini', 'env', 'properties',\n  'sh', 'bash', 'zsh', 'fish', 'ps1',\n  'py', 'js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx',\n  'go', 'rs', 'java', 'kt', 'rb', 'php', 'pl', 'lua',\n  'c', 'h', 'cpp', 'hpp', 'cc', 'cs', 'm', 'mm',\n  'tf', 'hcl', 'tfvars', 'sql', 'graphql', 'gql', 'dockerfile',\n  'html', 'htm', 'css', 'scss', 'sass', 'less', 'vue', 'svelte',\n  'patch', 'diff'\n]);\n\nconst isImage = mimeType.startsWith('image/');\nconst isTextMime =\n  mimeType.startsWith('text/') ||\n  mimeType === 'application/json' ||\n  mimeType === 'application/ld+json' ||\n  mimeType === 'application/xml' ||\n  mimeType === 'application/x-yaml' ||\n  mimeType === 'application/yaml' ||\n  mimeType === 'application/x-sh' ||\n  mimeType === 'application/javascript' ||\n  mimeType === 'application/x-ndjson' ||\n  mimeType === 'application/toml';\nconst isTextLike = isTextMime || TEXT_EXTENSIONS.has(ext);\n\nlet category;\nif (isImage && size <= config.MAX_IMAGE_SIZE_BYTES) {\n  category = 'image';\n} else if (isTextLike && size <= config.MAX_TEXT_SIZE_BYTES) {\n  category = 'text_small';\n} else if (isTextLike) {\n  category = 'text_too_large';\n} else {\n  category = 'unsupported';\n}\n\nreturn {\n  json: {\n    ...fileInfo,\n    file_extension: ext,\n    is_text_like: isTextLike,\n    is_image: isImage,\n    category\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        656
+      ],
+      "id": "c4ea7112-9e42-4870-aa30-0de9ac3fd74f",
+      "name": "Classify file"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw00001-0000-0000-0000-000000000010",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "image"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw00001-0000-0000-0000-000000000020",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "text_small",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text_small"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw00001-0000-0000-0000-000000000030",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "text_too_large",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text_too_large"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "unsupported"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1328,
+        624
+      ],
+      "id": "db7e78de-6ae5-46b6-9b2a-03a12fa5067f",
+      "name": "Route by category"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url_private_download }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "sendCredentialsOnCrossOriginRedirect": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        352
+      ],
+      "id": "1c846032-b70b-4c49-82b8-5ca5352d168b",
+      "name": "Download file",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3MVccyR2itwKR8uP",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.VISION_MODEL }}"
+        },
+        "text": "=You are a DevOps screenshot analyst. Produce a concise structured description in English of the attached image.\n\nOutput sections (skip a section if not applicable):\n1. source_system — which tool/system the screenshot is from. Choose from: GitHub Actions, GitLab CI, Jenkins, TeamCity, Grafana, Sentry, Loki, Prometheus, Mattermost, Slack, Jira, Kubernetes Dashboard, terminal/shell, IDE (VSCode/JetBrains), browser DevTools, generic web page, unknown.\n2. visible_text — verbatim transcript of error messages, stack traces, command output, status codes, job names. Preserve exact wording and casing. Use code fences for multi-line blocks.\n3. If screenshot from version control system like Gitlab or Github trying to figure out what the repository name is\n4. key_signals — bullet list of what matters for an SRE: failed step name, exit code, service/pod/namespace, timestamp, severity, status indicator color.\n5. summary — 1-2 sentences in plain English on what the screenshot shows.\n\nBe terse. No filler, no greetings, no markdown headings beyond what is asked. If the image is not technical (meme, photo of a person, decorative), say so in summary and skip other sections.",
+        "inputType": "=base64",
+        "options": {
+          "detail": "auto"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1776,
+        352
+      ],
+      "id": "a1d442cd-ce7d-41b4-a14d-1ae15c7f0bee",
+      "name": "OpenAI: Analyze Image",
+      "credentials": {
+        "openAiApi": {
+          "id": "XedjbHsqkge0ycmt",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// runOnceForEachItem — pairedItem propagation lets us reach back to\n// \"Classify file\" by item index and recover the original file metadata.\n\nconst llmOut = $input.item.json;\nconst fileInfo = $('Classify file').item.json;\n\n// OpenAI Analyze Image returns the model text under different fields\n// depending on n8n version. Try common shapes in order.\nlet description =\n  (typeof llmOut.content === 'string' && llmOut.content) ||\n  (typeof llmOut.message?.content === 'string' && llmOut.message.content) ||\n  (Array.isArray(llmOut.content) && llmOut.content.map(c => c.text || '').join('\\n')) ||\n  llmOut.text ||\n  '[vision model returned no content]';\n\nif (typeof description !== 'string') {\n  description = JSON.stringify(description);\n}\n\nreturn {\n  json: {\n    file_id: fileInfo.id,\n    file_name: fileInfo.name,\n    mime_type: fileInfo.mime_type,\n    size: fileInfo.size,\n    is_image: true,\n    is_text: false,\n    description\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        352
+      ],
+      "id": "11974826-511d-4b3e-b3c8-6e2b78a450b2",
+      "name": "Format image description"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url_private_download }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "sendCredentialsOnCrossOriginRedirect": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        544
+      ],
+      "id": "515c45a5-3092-4975-9a84-6a53d466a1ed",
+      "name": "Download text file",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3MVccyR2itwKR8uP",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// runOnceForEachItem. HTTP Request (responseFormat=text) returned the body\n// as a string in $json.data. File metadata is recovered via pairedItem from\n// \"Classify file\".\n//\n// Two-tier size check:\n//   tier 1 (bytes): already enforced by \"Classify file\" + Switch routing.\n//   tier 2 (lines): re-checked here for files that fit byte budget but\n//                   contain unusually long lines (e.g. minified JSON).\n\nconst fileInfo = $('Classify file').item.json;\nconst config = $('Config').first().json;\nconst text = typeof $json.data === 'string' ? $json.data : '';\n\nconst lineCount = text.length === 0 ? 0 : text.split(/\\r\\n|\\r|\\n/).length;\nconst maxLines = Number(config.MAX_TEXT_LINES) || 300;\n\nif (lineCount > maxLines) {\n  return {\n    json: {\n      file_id: fileInfo.id,\n      file_name: fileInfo.name,\n      mime_type: fileInfo.mime_type,\n      size: fileInfo.size,\n      is_image: false,\n      is_text: true,\n      description: `Attachment ${fileInfo.name} is too large to inline: ${fileInfo.size} bytes / ${lineCount} lines (limit: ${maxLines} lines). Ask the user to share the relevant excerpt.`\n    }\n  };\n}\n\nreturn {\n  json: {\n    file_id: fileInfo.id,\n    file_name: fileInfo.name,\n    mime_type: fileInfo.mime_type,\n    size: fileInfo.size,\n    is_image: false,\n    is_text: true,\n    description: `Text content of ${fileInfo.name} (${fileInfo.size} bytes, ${lineCount} lines):\\n\\n\\`\\`\\`\\n${text}\\n\\`\\`\\``\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        544
+      ],
+      "id": "e7bed0f0-cc60-4107-a7a5-4b18f71b14f5",
+      "name": "Format text content"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "tl000001-0000-0000-0000-000000000001",
+              "name": "file_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "tl000001-0000-0000-0000-000000000002",
+              "name": "file_name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "tl000001-0000-0000-0000-000000000003",
+              "name": "mime_type",
+              "value": "={{ $json.mime_type }}",
+              "type": "string"
+            },
+            {
+              "id": "tl000001-0000-0000-0000-000000000004",
+              "name": "size",
+              "value": "={{ $json.size }}",
+              "type": "number"
+            },
+            {
+              "id": "tl000001-0000-0000-0000-000000000005",
+              "name": "is_image",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "tl000001-0000-0000-0000-000000000006",
+              "name": "is_text",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "tl000001-0000-0000-0000-000000000007",
+              "name": "description",
+              "value": "=Attachment {{ $json.name }} is a text file but too large to inline: {{ $json.size }} bytes (limit: {{ $('Config').first().json.MAX_TEXT_SIZE_BYTES }} bytes). Ask the user to share the relevant excerpt.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1552,
+        768
+      ],
+      "id": "5461ee0f-9b4e-453c-9955-f7e6b2a03c5c",
+      "name": "Text too large marker"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ni000001-0000-0000-0000-000000000001",
+              "name": "file_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "ni000001-0000-0000-0000-000000000002",
+              "name": "file_name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "ni000001-0000-0000-0000-000000000003",
+              "name": "mime_type",
+              "value": "={{ $json.mime_type }}",
+              "type": "string"
+            },
+            {
+              "id": "ni000001-0000-0000-0000-000000000004",
+              "name": "size",
+              "value": "={{ $json.size }}",
+              "type": "number"
+            },
+            {
+              "id": "ni000001-0000-0000-0000-000000000005",
+              "name": "is_image",
+              "value": "={{ ($json.mime_type || '').startsWith('image/') }}",
+              "type": "boolean"
+            },
+            {
+              "id": "ni000001-0000-0000-0000-000000000006",
+              "name": "is_text",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "ni000001-0000-0000-0000-000000000007",
+              "name": "description",
+              "value": "=Attachment {{ $json.name }} not analyzed (mime: {{ $json.mime_type }}, size: {{ $json.size }} bytes). Either unsupported binary format or exceeds size limit.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1552,
+        976
+      ],
+      "id": "fa1caf7d-5159-4db0-a856-ecbecf1f1a88",
+      "name": "Non-image marker"
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2224,
+        720
+      ],
+      "id": "43a2b679-ad6d-4c0d-a403-16a3f61eabb2",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "attachments",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2432,
+        752
+      ],
+      "id": "b47d4e88-101d-41ea-9bd0-e5dbd3a635ad",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate produced a single item with `attachments: [...]`.\n// Build a human-readable block for the AI Agent system prompt.\n// Output shape mirrors the \"Empty result\" Set node so the parent workflow\n// can consume the output uniformly.\n\nconst attachments = $input.first().json.attachments || [];\nconst valid = attachments.filter(a => a && a.file_id);\n\nif (valid.length === 0) {\n  return [{ json: { attachments_context: '', attachments_count: 0 } }];\n}\n\nconst blocks = valid.map((a, i) => {\n  let tag;\n  if (a.is_image) tag = 'image';\n  else if (a.is_text) tag = 'text';\n  else tag = a.mime_type || 'file';\n\n  const header = `Attachment ${i + 1}: ${a.file_name} [${tag}]`;\n  return `${header}\\n${a.description}`;\n});\n\nreturn [{\n  json: {\n    attachments_context: blocks.join('\\n\\n---\\n\\n'),\n    attachments_count: valid.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        752
+      ],
+      "id": "79d8ed60-6cae-47c5-be66-758a27dfbe8d",
+      "name": "Build attachments_context"
+    },
+    {
+      "parameters": {
+        "content": "# Input chain\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n```json\n{ \"file_ids\": [\"id1\", \"id2\", ...] }\n```\n",
+        "height": 480,
+        "width": 576,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        768
+      ],
+      "typeVersion": 1,
+      "id": "284084ee-c38c-4656-b137-be9e8357d196",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Output chain\n\n\n\n\n\n\n\n\n\n\n\n\n```json\n{\n  \"attachments_context\": \"...human-readable block...\",\n  \"attachments_count\": 2\n}\n```",
+        "height": 512,
+        "width": 528,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2368,
+        672
+      ],
+      "typeVersion": 1,
+      "id": "e53f71c7-9776-4c84-924a-0826d2868fe7",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Attachment analyzer\nAccepts images and text files",
+        "height": 944,
+        "width": 624,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1520,
+        240
+      ],
+      "typeVersion": 1,
+      "id": "574a1d8e-2c45-465a-95c1-896a24aba240",
+      "name": "Sticky Note2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Has attachments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has attachments?": {
+      "main": [
+        [
+          {
+            "node": "Split file_ids",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Empty result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split file_ids": {
+      "main": [
+        [
+          {
+            "node": "Get file info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get file info": {
+      "main": [
+        [
+          {
+            "node": "Classify file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify file": {
+      "main": [
+        [
+          {
+            "node": "Route by category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by category": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download text file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Text too large marker",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Non-image marker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Analyze Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Analyze Image": {
+      "main": [
+        [
+          {
+            "node": "Format image description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format image description": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download text file": {
+      "main": [
+        [
+          {
+            "node": "Format text content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format text content": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Text too large marker": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Non-image marker": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Build attachments_context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "14dd9304-64e8-4718-a212-8af5e6e0e7d4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "<your-n8n-instance-id>"
+  },
+  "id": "9cW1gAVnh4z7FR6a",
+  "tags": []
+}

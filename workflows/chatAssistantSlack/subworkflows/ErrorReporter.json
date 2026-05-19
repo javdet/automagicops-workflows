@@ -1,0 +1,212 @@
+{
+  "name": "ErrorReporter",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        592
+      ],
+      "id": "e789816a-f102-4252-aeff-f23b2ec9d195",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.n8n_base_url }}{{ $('Config').first().json.n8n_api_path }}/{{ $('Error Trigger').first().json.execution.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "includeData",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        592
+      ],
+      "id": "692e04af-6bd3-4a63-91f0-aed2530e018f",
+      "name": "Get Execution Details",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "OTSveBzDF8N0C1hV",
+          "name": "n8n API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error reporter: recover Slack thread + channel from failed execution (API includeData).\n\nconst errorMeta = $('Error Trigger').first().json || {};\nconst exec = errorMeta.execution || {};\nconst wf = errorMeta.workflow || {};\nconst cfg = $('Config').first().json || {};\n\nconst apiResp = $input.first().json || {};\nconst runData =\n  (apiResp.data && apiResp.data.resultData && apiResp.data.resultData.runData) || {};\n\n// First item of first main branch for a node (matches typical linear flows).\nfunction nodeOutput(nodeName) {\n  const runs = runData[nodeName];\n  if (!runs || !runs.length) return null;\n  const main = runs[0] && runs[0].data && runs[0].data.main;\n  if (!main || !main.length) return null;\n  const branch0 = main[0];\n  if (!branch0 || !branch0.length) return null;\n  const j = branch0[0].json;\n  return j && typeof j === 'object' ? j : null;\n}\n\n// Low → high priority (later overwrites earlier). SetVars must win on sub-workflows.\nconst CONTEXT_NODE_ORDER = [\n  'Router',\n  'Parse AI Response',\n  'AddUserName',\n  'When Executed by Another Workflow',\n  'ReadIncidentContext',\n  'Read Incident Context',\n  'SetVars',\n];\n\nlet ctx = {};\nlet ctxSource = 'fallback';\nfor (const name of CONTEXT_NODE_ORDER) {\n  const o = nodeOutput(name);\n  if (!o) continue;\n  ctx = { ...ctx, ...o };\n  ctxSource = name;\n}\n\nfunction boolish(v) {\n  if (v === true || v === false) return v;\n  if (v === 'true') return true;\n  if (v === 'false') return false;\n  return null;\n}\n\nfunction computeThreadRootId(c) {\n  const direct = c.reply_root_id || c.thread_root_id;\n  if (direct) return String(direct);\n\n  const inThreadFlag = boolish(c.is_thread) ?? boolish(c.is_in_thread);\n  const slackStyleInThread =\n    c.thread_ts && c.ts && String(c.thread_ts) !== String(c.ts);\n  const inThread = inThreadFlag === true || (inThreadFlag === null && slackStyleInThread);\n\n  if (inThread) {\n    return String(c.thread_root_id || c.thread_ts || '');\n  }\n  return String(c.post_id || c.ts || c.thread_ts || '');\n}\n\nconst replyRootId = computeThreadRootId(ctx);\nconst channelId = ctx.channel_id || cfg.fallback_channel_id;\nconst hasThread = Boolean(channelId && replyRootId);\n\nfunction truncate(s, n) {\n  if (!s) return '';\n  return s.length > n ? s.slice(0, n) + '…' : s;\n}\n\nconst errMsg = truncate(exec.error && exec.error.message, 1500) || 'Unknown error';\nconst lastNode = exec.lastNodeExecuted || 'unknown node';\nconst execUrl = exec.url || '';\nconst wfName = wf.name || 'unknown workflow';\nconst execMode = exec.mode || '';\n\nconst lines = [\n  `:rotating_light: **${wfName}** execution failed`,\n  '',\n  `**Failed node:** \\`${lastNode}\\``,\n  `**Error:**`,\n  '```',\n  errMsg,\n  '```',\n];\n\nif (execUrl) {\n  lines.push(`**Execution:** [open in n8n](${execUrl})`);\n}\nif (execMode) {\n  lines.push(`**Mode:** ${execMode}`);\n}\nif (ctx.user_name) {\n  lines.push(\n    `**Original request from:** @${ctx.user_name}${ctx.channel_name ? ' in #' + ctx.channel_name : ''}`,\n  );\n}\nif (!hasThread) {\n  lines.push('');\n  lines.push('_Note: thread context could not be recovered — posting to fallback channel._');\n}\n\nreturn [\n  {\n    json: {\n      channel_id: channelId,\n      root_id: replyRootId,\n      message: lines.join('\\n'),\n      has_thread_context: hasThread,\n      debug: {\n        execution_id: exec.id,\n        workflow_id: wf.id,\n        context_source: ctxSource,\n      },\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        592
+      ],
+      "id": "a3b1f7bd-f621-4b34-bc48-0969362cbd53",
+      "name": "Extract Thread Context"
+    },
+    {
+      "parameters": {
+        "content": "## ErrorReporter\n\nGeneric error handler for n8n sub-workflows that originate from a Slack message (for example CICDAssistant, IncidentAssistant, or your own parent workflows).\n\n### Wiring\nAttach this workflow as Error Workflow in the target workflow's Settings → Error Workflow.\n\n### How it recovers thread context\nError Trigger gets only execution metadata. We re-fetch the failed execution via n8n public API (`GET /api/v1/executions/{id}?includeData=true`) and read `channel_id` + `reply_root_id` from the latest available node output (priority: SetVars → Read Incident Context → Trigger → fallback).\n\n### Required credentials\n1. **HTTP Header Auth** — name suggestion `n8n API`. Header: `X-N8N-API-KEY`, value: your n8n API key (Settings → n8n API).\n2. **Slack** — same credential the parent workflows already use.\n\n### Config defaults\nSet the **Config** node to match your environment:\n- `n8n_base_url` — your n8n instance base URL (e.g. `https://<your-n8n-host>` or internal service URL).\n- `fallback_channel_id` — Slack channel ID for alerts when thread context cannot be recovered (`<your-slack-fallback-channel-id>`).",
+        "height": 540,
+        "width": 600
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        144
+      ],
+      "typeVersion": 1,
+      "id": "fefb8239-ff8b-4026-ade3-21a180c45c41",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c0000001-0000-0000-0000-000000000001",
+              "name": "n8n_base_url",
+              "value": "https://<your-n8n-host>",
+              "type": "string"
+            },
+            {
+              "id": "c0000001-0000-0000-0000-000000000002",
+              "name": "fallback_channel_id",
+              "value": "<your-slack-fallback-channel-id>",
+              "type": "string"
+            },
+            {
+              "id": "c0000001-0000-0000-0000-000000000003",
+              "name": "n8n_api_path",
+              "value": "/api/v1/executions",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        592
+      ],
+      "id": "0daca1b8-9786-4542-b9c6-37ef8507d733",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.channel_id }}",
+          "mode": "id"
+        },
+        "text": "There was an error, they will find out about it soon and fix it.",
+        "otherOptions": {
+          "thread_ts": {
+            "replyValues": {
+              "thread_ts": "={{ $json.root_id }}"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        880,
+        592
+      ],
+      "id": "b2b6bde5-a4ba-4002-8ed7-4b5ba1ea4910",
+      "name": "Send a message",
+      "webhookId": "10049488-f516-44f5-92c5-01f9fa10a9e6",
+      "credentials": {
+        "slackApi": {
+          "id": "nu3n0nBPHyw3mdS8",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Execution Details": {
+      "main": [
+        [
+          {
+            "node": "Extract Thread Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Thread Context": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Execution Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "0519f159-b9b6-4372-bfac-d7d3d61f7c0c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "<your-n8n-instance-id>"
+  },
+  "id": "otNGMdfda3qToSPy",
+  "tags": []
+}
