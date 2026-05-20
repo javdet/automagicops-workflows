@@ -28,7 +28,7 @@ The result is a four-section incident report:
 * Troubleshooting tips — step-by-step remediation for each root cause
 
 ### QuestionsAssistant
-![Preview](./subworkflows/IncidentAssistant.png)
+![Preview](./subworkflows/QuestionAssistant.png)
 AI-powered sub-workflow that answers questions about a your infrastructure configuration directly in a Mattermost channel or thread
 
 ### TaskAssistant

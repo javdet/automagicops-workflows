@@ -1,0 +1,754 @@
+{
+  "name": "IncidentAssistant",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"message\": \"...\",\n  \"post_id\": \"...\",\n  \"channel_id\": \"...\",\n  \"is_thread\": false,\n  \"thread_root_id\": \"...\",\n  \"user_name\": \"...\",\n  \"category\": \"incident\",\n  \"confidence\": 0.95,\n  \"summary\": \"...\",\n  \"channel_name\": \"...\",\n  \"file_ids\": [\"x4t1k...\", \"9bzqm...\"]}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -432,
+        368
+      ],
+      "id": "08a4dfdf-6776-4e1d-9c9f-c64e2af63cd6",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Investigate incident from {{ $json.user_name }}\nin channel {{ $json.channel_id }}{{ $json.is_thread ? ' (message in thread, thread_root_id=' + $json.thread_root_id + ' — read the full thread via Slack conversations_replies first)' : '' }}\n\n{{ $json.message }}{{ $json.attachments_context && $json.attachments_context.trim().length > 0 ? '\\n\\nAdditional information from attachments:\\n' + $json.attachments_context : '' }}",
+        "options": {
+          "systemMessage": "=You are a senior SRE assistant for your organization's infrastructure. Your main goal is to assist in the investigation of the incident indicated by the alert.\n\n## Slack thread context\n- The Slack message metadata is provided as variables: is_in_thread = {{ $json.is_in_thread }}, thread_root_id = {{ $json.thread_root_id }}, channel_id = {{ $json.channel_id }}\n- If is_in_thread is true, the user's question is a reply in an existing Slack thread. BEFORE doing any other investigation step, fetch the full thread using the Slack tool conversations_replies with channel = {{ $json.channel_id }} and ts = {{ $json.thread_root_id }}. Read every reply in chronological order — they often contain prior investigation steps, shared logs, links to failing jobs / repositories / dashboards, decisions, and findings from teammates\n- Use the thread context to scope the investigation. Do NOT repeat work that was already done in the thread; build on it. If the thread already points to a specific repo, branch, job, service or root cause hypothesis, focus there first\n- Treat the latest message in the thread as the most up-to-date statement of the problem; earlier messages provide context but may be outdated\n- If is_in_thread is false, do NOT fetch thread history\n\n## Important rules\n- Don't ask anything, analyze it yourself\n\n## Investigation flow recommendations\n- Pay attention to the alert labels. They will help you understand what the problem is and where it is.\n- Study the alert description and labels.\n- Determine the subject area of ​​the message. What is it related to, for example, a database, a message queue, a pod with a backend, or errors on an ingress controller.\n- If you need details about the infrastructure organization, endpoints, component names, and how they are related, use Qdrant vectore store \n- Try executing the request that triggered the alert.\n- Check the status of the service affected by the alert.\n- Check the resource consumption of this service.\n- Find out if releases have been executed\n- Examine the service logs.\n- Draw a conclusion based on the data received; you can use generating dashboard panels\n- Alerts may be delayed. If you haven't seen any issues in the last half hour, just write that you haven't found the problem.\n- You are an autonomous investigator. DO NOT announce what you are going to do. DO NOT write phrases like \"I will check\", \"Let me investigate\", \"I'll look at the logs\". Just CALL THE TOOLS and produce the final answer with findings.\n- Your first message to the user MUST be the final report with concrete findings from tool calls. Never produce an interim plan message.\n\n## Message context\n\n\n## Kubernetes Tools\nUse these to inspect cluster state: pods, deployments, ingress, services, logs, events, etc\n- Read container logs for error investigation\n- Use pods_log for the same pod no more than twice!\n- List resources across namespaces\n- We have several clusters in prod and dev environments: {{ $('SetVars').first().json.K8S_CLUSTERS }}\n- Main workload is in namespace: {{ $('SetVars').first().json.K8S_NAMESPACE }}\nIf you don't know the exact name of the pod, job, deployment, you can search all pods, job, deployment in the namespace and then choose the most suitable ones. \nFor example, you search for a pod or deployment by name `payment-api`, find nothing, then list pods in the namespace and narrow down using keywords from the alert (e.g. `payment-service`, workers, consumers).\n\n## Grafana Tools  \nUse these to query metrics, logs, dashboards:\n- **Prometheus**: query_prometheus for PromQL queries (CPU, memory, request rates, error rates). Datasource uid: {{ $('SetVars').first().json.prometheus_uid }}\n- **Loki**: query_loki_logs for LogQL log searches. Datasource uid: {{ $('SetVars').first().json.loki_uid }}\n- **Dashboards**: search_dashboards, get_dashboard_summary to find relevant dashboards\n\n## Vector store tools\n- Read infromation about infratructure, service commuication, trafic balancing, useful tags and labels. Naming convention\n\n## Digitalocean tools:\n- Use if you need information about App Platform, Droplets, Kubernetes(DOKS), Networking\n\n## Gitlab tools\n- Use for manipulation with ci/cd, repositories, files, commits, pull requests\n- The GitLab repo is a file tree. A path with no file extension, or a path you know is a folder in the UI, may be a directory, not a file.\n- Never call get_file_contents for a path until you are sure it is a specific file (e.g. inventory/prod/hosts, not inventory/prod).\n- To see what is inside a path, first call get_repository_tree with path set to that directory\n- Gitlab root group {{ $json.GITLAB_GROUP }}\n\n## Critical Rules for Tool Usage\n1. **Never retry a failed tool call more than once.** If a Kubernetes resource (pod, deployment, node) is not found on the first attempt, it likely no longer exists. Do NOT retry the same query.\n2. **If any tool returns an error or empty result**, acknowledge it and move on.\n3.  Don't make any changes to anything through mcp.\n4.  Avoid queries that return all elements; filter and grep.\n5.  When working with metrics, logs, and traces, always specify a limited time range in your queries.\n6. Never try to get all the events from the Kubernetes without filtering by a specific object, for example certain pod, job, deployment\n7. If you don't know the exact name of the pod, job, deployment, you can search all pods, job, deployment in the namespace and then choose the most suitable ones.\n8. Before searching for pod logs in Loki, find the name of the container and the namespace where it is located. Use labels namespace and container for search\n\n## Output format\n### What happened\nDescription of what happened and what happened to what\n\n### Event timeline\nDescription of events preceding the alert for more than 10 minutes\n\n### Root cause\nNo more than two root cause suggestions\n\n### Troubleshooting tips\nStep-by-step description of actions for each root cause",
+          "maxIterations": 20
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        880,
+        368
+      ],
+      "id": "09a75c8c-0d32-4498-ad9d-96e40e94eddd",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "https://<your-mcp-host>/grafana/mcp",
+        "include": "selected",
+        "includeTools": [
+          "get_datasource",
+          "get_panel_image",
+          "list_datasources",
+          "list_loki_label_names",
+          "list_loki_label_values",
+          "query_loki_logs",
+          "query_loki_patterns",
+          "query_loki_stats",
+          "list_prometheus_label_names",
+          "list_prometheus_label_values",
+          "list_prometheus_metric_metadata",
+          "list_prometheus_metric_names",
+          "query_prometheus",
+          "query_prometheus_histogram",
+          "search_dashboards",
+          "search_folders"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        992
+      ],
+      "id": "93c042da-9212-42dc-9235-3c681c4e7f4e",
+      "name": "Grafana"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "https://<your-mcp-host>/digitalocean/mcp",
+        "include": "selected",
+        "includeTools": [
+          "apps-get-deployment-status",
+          "apps-get-info",
+          "apps-get-logs",
+          "apps-list",
+          "byoip-prefix-resources-get",
+          "byoip-prefix-list",
+          "certificate-get",
+          "certificate-list",
+          "doks-get-cluster",
+          "doks-get-nodepool",
+          "doks-list-clusters",
+          "doks-list-nodepools",
+          "doks-list-options",
+          "domain-get",
+          "domain-list",
+          "domain-record-get",
+          "domain-record-list",
+          "droplet-get",
+          "droplet-list",
+          "firewall-get",
+          "firewall-list",
+          "lb-get",
+          "lb-list",
+          "region-list",
+          "reserved-ip-list",
+          "reserved-ip-get",
+          "size-list",
+          "vpc-get",
+          "vpc-list"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1008,
+        992
+      ],
+      "id": "6619a9c6-ca25-4ccd-9d09-18bd558dee6e",
+      "name": "DigitalOcean"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://<your-k8s-mcp-service>:8089/mcp",
+        "include": "selected",
+        "includeTools": [
+          "configuration_view",
+          "events_list",
+          "namespaces_list",
+          "nodes_log",
+          "nodes_top",
+          "pods_get",
+          "pods_list",
+          "pods_list_in_namespace",
+          "pods_log",
+          "pods_top",
+          "resources_get",
+          "resources_list"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        992
+      ],
+      "id": "c511b0f5-97f9-41cf-bb1c-9ca8f2e6f9ed",
+      "name": "K8S"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Use this tool to fetch knowledge from the database. ",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "<your-infrastructure-qdrant-collection>",
+          "mode": "list",
+          "cachedResultName": "<your-infrastructure-qdrant-collection>"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        1264,
+        992
+      ],
+      "id": "178d52f3-0ec8-439b-8f09-47ec9f8c0464",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "o50PYyzSFxY0V7R8",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-2-preview"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1264,
+        1184
+      ],
+      "id": "2db78d32-29db-4c2f-8e99-dd1a8a32ccaa",
+      "name": "Embeddings Google Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "BAV50tB4x11iSv3t",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read the classification object passed from the parent classifier workflow.\n// Available fields: message, post_id, channel_id, user_name, user_id,\n// channel_name, timestamp, category, confidence, summary\n\nconst data = $input.first().json;\n\n// Log for debugging\nconsole.log(`Incident received: ${data.summary}`);\nconsole.log(`From: ${data.user_name} in #${data.channel_name}`);\nconsole.log(`Confidence: ${data.confidence}`);\n\nreturn [{ json: data }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        368
+      ],
+      "id": "4c979a9f-7aa5-448c-8253-0d4f9e8707ab",
+      "name": "ReadIncidentContext"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a8cb35fa-467e-4060-9f95-6386dc27a5b5",
+              "name": "GITLAB_GROUP",
+              "value": "<your-gitlab-group>",
+              "type": "string"
+            },
+            {
+              "id": "8471f4ad-0bdc-421b-887c-8bd7b2c4528e",
+              "name": "K8S_NAMESPACE",
+              "value": "<your-primary-k8s-namespace>",
+              "type": "string"
+            },
+            {
+              "id": "dfc64c71-82a9-4e67-b91b-7fd675256448",
+              "name": "K8S_CLUSTERS",
+              "value": "<your-prod-kube-context>,<your-dev-kube-context>",
+              "type": "string"
+            },
+            {
+              "id": "c4d1bc7f-5d84-48b6-99ce-091d332ece58",
+              "name": "prometheus_uid",
+              "value": "<your-prometheus-datasource-uid>",
+              "type": "string"
+            },
+            {
+              "id": "be454984-d00d-45cd-8895-34edd7b3d681",
+              "name": "loki_uid",
+              "value": "<your-loki-datasource-uid>",
+              "type": "string"
+            },
+            {
+              "id": "1721dbf7-4b1a-4fdb-af81-79ba9848c49c",
+              "name": "thread_root_id",
+              "value": "={{ $('When Executed by Another Workflow').item.json.thread_root_id }}",
+              "type": "string"
+            },
+            {
+              "id": "6989a4c3-10b6-4098-892d-635d3f918ba7",
+              "name": "on_call_user",
+              "value": "<your-on-call-slack-usergroup>",
+              "type": "string"
+            },
+            {
+              "id": "7c33bbe2-1419-4649-8aaf-4c0c3f51cd7e",
+              "name": "is_in_thread",
+              "value": "={{ $('When Executed by Another Workflow').item.json.is_thread }}",
+              "type": "string"
+            },
+            {
+              "id": "684a72a8-c547-4f62-9856-5cbc4afb9acc",
+              "name": "=message",
+              "value": "={{ $('When Executed by Another Workflow').item.json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "bf935da2-113a-407e-8328-9d2f0a6f3696",
+              "name": "channel_name",
+              "value": "={{ $('When Executed by Another Workflow').item.json.channel_name }}",
+              "type": "string"
+            },
+            {
+              "id": "1740df8b-96e8-4705-81f8-0faaac69ffda",
+              "name": "SLACK_CHANNEL",
+              "value": "<your-slack-channel-name>",
+              "type": "string"
+            },
+            {
+              "id": "521f0b4f-0c4b-46ab-8e1a-42f97dc434a2",
+              "name": "user_name",
+              "value": "={{ $('When Executed by Another Workflow').item.json.user_name }}",
+              "type": "string"
+            },
+            {
+              "id": "4402bf89-7d08-4182-a8c4-e27a249c2f6a",
+              "name": "channel_id",
+              "value": "={{ $('When Executed by Another Workflow').item.json.channel_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        368
+      ],
+      "id": "1270f807-29c7-4ed7-8003-70cec7f3e1b7",
+      "name": "SetVars"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.5",
+          "mode": "list",
+          "cachedResultName": "gpt-5.5"
+        },
+        "builtInTools": {
+          "webSearch": {
+            "searchContextSize": "medium"
+          }
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        784,
+        560
+      ],
+      "id": "6f96afae-9e45-4471-b95d-011cba273a8e",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "XedjbHsqkge0ycmt",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('SetVars').item.json.channel_id }}",
+          "mode": "id"
+        },
+        "text": "={{ $json.output }}",
+        "otherOptions": {
+          "thread_ts": {
+            "replyValues": {
+              "thread_ts": "={{ $('SetVars').first().json.thread_root_id }}"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        1568,
+        368
+      ],
+      "id": "07e95dda-f150-4f7b-a7be-d935862f87f9",
+      "name": "Send a message",
+      "webhookId": "599f44ec-1499-46f7-9d14-2edaf18ccbb8",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "5WNwfj6QcJWOjl62",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "<your-attachments-analyzer-subworkflow-id>",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/<your-attachments-analyzer-subworkflow-id>",
+          "cachedResultName": "AttachmentsAnalyzer"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "file_ids": "={{ $json.file_ids }}"
+          },
+          "matchingColumns": [
+            "file_ids"
+          ],
+          "schema": [
+            {
+              "id": "file_ids",
+              "displayName": "file_ids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        368
+      ],
+      "id": "59e5b0b9-b77e-4130-a63e-95dc073f9a76",
+      "name": "Call 'attachmentsAnalyzer'",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        368
+      ],
+      "id": "f608ea10-d6b6-4ed1-9afd-ff687fa5c30d",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "74f84524-308f-4357-a5bc-890c0cba9fb1",
+              "name": "attachments_context",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "688664ba-3c01-485d-a605-901f044aaba5",
+              "name": "attachments_count",
+              "value": "0",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        544
+      ],
+      "id": "08f0c9d1-a52b-4d8b-9664-463fc061117b",
+      "name": "Set: empty attachments"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "https://<your-mcp-host>/slack/mcp",
+        "authentication": "bearerAuth",
+        "include": "selected",
+        "includeTools": [
+          "channels_list",
+          "conversations_history",
+          "conversations_replies",
+          "usergroups_list",
+          "users_search"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        752,
+        992
+      ],
+      "id": "fcdaf35b-6d03-4aa8-b4ec-bef66c27d1c8",
+      "name": "Slack",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "iFWTS5UMtoX8Mjwt",
+          "name": "Slack MCP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Input Chain\n\n\n\n\n\n\n\n\n\n\n\n\n\n```\n[\n  {\n    \"message\": ,\n    \"post_id\": ,\n    \"channel_id\": ,\n    \"channel_name\": ,\n    \"user_name\": ,\n    \"user_id\": ,\n    \"file_ids\":,\n    \"category\": ,\n    \"confidence\": ,\n    \"summary\": ,\n    \"acknowledge\": ,\n    \"is_in_thread\":,\n    \"thread_root_id\": ,\n  }\n]\n```",
+        "height": 608,
+        "width": 416,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -480,
+        272
+      ],
+      "typeVersion": 1,
+      "id": "b5356676-1416-4b5d-9acd-c9a3efd32e74",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Check attachments\nCalling a subworkflow to get context from attachments",
+        "height": 608,
+        "width": 720,
+        "color": "#2E3107"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -32,
+        272
+      ],
+      "typeVersion": 1,
+      "id": "5e78e839-6914-45e2-8341-67d4f8d9067c",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Alert analysis",
+        "height": 608,
+        "width": 720,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        720,
+        272
+      ],
+      "typeVersion": 1,
+      "id": "c736ec44-b6c3-4729-8f6f-bb35fc6b1cd9",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Alert analysis",
+        "height": 608,
+        "width": 288,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1472,
+        272
+      ],
+      "typeVersion": 1,
+      "id": "a4cae5c0-5465-47ed-927d-9a4002dfe198",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "\n\n\n\n\n\n\n\n\n\n\n\n## MCP servers\nAdd correct URLs for remote MCPs\nUse following mcp:\n* [grafana-mcp](https://github.com/grafana/mcp-grafana)\n* [digitalocean-mcp](https://github.com/digitalocean/digitalocean-mcp)\n* [kubernetes-mcp-server](https://github.com/containers/kubernetes-mcp-server)\n* [slack-mcp](https://github.com/korotovsky/slack-mcp-server)",
+        "height": 400,
+        "width": 800,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        720,
+        928
+      ],
+      "typeVersion": 1,
+      "id": "e7f517f2-ef82-47de-bbf5-4292d3cc4785",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Overview\nAI-powered SRE sub-workflow that investigates user-reported incidents coming from a Slack channel and posts a structured diagnostic report back into the same thread.\nThe result is a four-section incident report:\n* What happened — a concise summary of the symptoms\n* Event timeline — what was happening in the 10+ minutes before the incident\n* Root cause — up to two probable causes\n* Troubleshooting tips — step-by-step remediation for each root cause\n\n## Requirements\n* OpenRouter/OpenAI/Anthropic API key — for the chat model .\n* MCP servers (see MCP section) .\n* Slack credentials.\n* Qdrant instance\n* `attachmentsAnalyzer` sub-workflow — must be present in the same n8n instance; analyzes files attached to the originating Slack message and returns a textual context.\n* `httpProbeTool` sub-workflow — provides the probe_url tool that the agent uses to verify reachability of external dependencies; must return structured\n* [Parent workflow]() — a classifier  that calls this workflow via Execute Workflow \n\n## How it works\n1. The workflow is triggered by another workflow (When Executed by Another Workflow)\n1. `ReadIncidentContext` logs the incoming classification for debugging and forwards the payload downstream\n1. Call '`attachmentsAnalyzer` invokes a vision sub-workflow with the file_ids\n1. `SetVars` defines the configuration used by the AI Agent prompt\n1. `AI Agent` runs the investigation \n1. Send a message` sends the agent's final output back to the originating channel\n\n## How to use\n* Prepare the knowledge base — upload your infrastructure description, service map, naming conventions and runbooks into a Qdrant collection\n* Deploy the MCP servers and put their URLs into the corresponding tool\n* Configure credentials\n* Adjust the configuration in `SetVars`\n* Plug in the attachments sub-workflow — replace the workflow reference in Call 'attachmentsAnalyzer' with your own vision-analysis workflow that maps file_ids[]\n* Tune the system prompt in the AI Agent — add project-specific naming conventions, ownership info, escalation rules and any quirks of your infrastructure\n",
+        "height": 800,
+        "width": 1168,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -480,
+        928
+      ],
+      "typeVersion": 1,
+      "id": "db447127-0956-4eb9-a4fe-f2c7999bf506",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "ReadIncidentContext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grafana": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DigitalOcean": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "K8S": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ReadIncidentContext": {
+      "main": [
+        [
+          {
+            "node": "Call 'attachmentsAnalyzer'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetVars": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'attachmentsAnalyzer'": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set: empty attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "SetVars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set: empty attachments": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Slack": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "9d5831e6-08ed-4ff2-9ced-a75816ea7c1b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "<your-n8n-instance-id>"
+  },
+  "id": "3CbbmDkomsWZ0yVL",
+  "tags": []
+}
