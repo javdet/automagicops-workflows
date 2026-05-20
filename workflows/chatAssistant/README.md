@@ -4,6 +4,11 @@ A set of workflows that solves the problem of technical support in Mattermost
 ## Initial workflow
 ![Preview](chatAssistant.png)
 Receives messages to technical support through Mattermost and classifies them.
+Sub-workflow connections:
+* incident - IncidentAssistant
+* new_system, modify infrastructure - TaskAssistant
+* ci_cd_error - CICDAssistant
+* question - QuestionAssistant
 
 ## Sub Workflows
 A list of subworkflows, each of which handles a specific type of request. They connect to parent workflow using `Execute Sub-workflow` node.

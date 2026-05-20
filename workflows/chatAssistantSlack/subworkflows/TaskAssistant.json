@@ -1,0 +1,659 @@
+{
+  "name": "TaskAssistant",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"message\": \"...\",\n  \"post_id\": \"...\",\n  \"channel_id\": \"...\",\n  \"user_name\": \"...\",\n  \"is_thread\": false,\n  \"thread_root_id\": \"...\",\n  \"category\": \"create_resource\",\n  \"confidence\": 0.95,\n  \"summary\": \"...\",\n  \"channel_name\": \"...\",\n  \"file_ids\": [\"x4t1k...\", \"9bzqm...\"]\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        544,
+        240
+      ],
+      "id": "27a78411-68a9-4af4-845b-2088d11bc93d",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read the classification object passed from the parent classifier workflow.\n// Available fields: message, post_id, channel_id, user_name,\n// channel_name, category, confidence, summary, on_call_user.\n\nconst data = $input.first().json;\n\nconsole.log(`Task received: ${data.summary}`);\nconsole.log(`From: ${data.user_name} in #${data.channel_name}`);\nconsole.log(`Confidence: ${data.confidence}`);\n\nreturn [{ json: data }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        240
+      ],
+      "id": "63502c16-1a8f-4197-9a55-e6be82238b41",
+      "name": "Read Incident Context"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4b9c2ad4-8e51-41e4-85a1-fae533e8f9b1",
+              "name": "K8S_NAMESPACE",
+              "value": "<your-k8s-namespace>",
+              "type": "string"
+            },
+            {
+              "id": "e54f7764-afd8-487c-909a-68598092367b",
+              "name": "JIRA_URL",
+              "value": "https://<your-org>.atlassian.net",
+              "type": "string"
+            },
+            {
+              "id": "c00bd982-d5e5-407a-b75a-7943cfa337cb",
+              "name": "channel_name",
+              "value": "={{ $('When Executed by Another Workflow').item.json.channel_name }}",
+              "type": "string"
+            },
+            {
+              "id": "e88bd001-d153-4e0f-ac96-09e5ec900e60",
+              "name": "is_in_thread",
+              "value": "={{ $('When Executed by Another Workflow').item.json.is_thread }}",
+              "type": "string"
+            },
+            {
+              "id": "f5fa0122-5626-4d8e-ab5b-78379e89a071",
+              "name": "message",
+              "value": "={{ $('When Executed by Another Workflow').item.json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "b8845895-4d9e-4790-b603-3fcb86a310d2",
+              "name": "user_name",
+              "value": "={{ $('When Executed by Another Workflow').item.json.user_name }}",
+              "type": "string"
+            },
+            {
+              "id": "8c704fe5-9a21-4078-9177-fdeec5c70266",
+              "name": "thread_root_id",
+              "value": "={{ $('When Executed by Another Workflow').item.json.thread_root_id }}",
+              "type": "string"
+            },
+            {
+              "id": "8ba23df3-221e-4de7-9f58-962d6686527e",
+              "name": "channel_id",
+              "value": "={{ $('When Executed by Another Workflow').item.json.channel_id }}",
+              "type": "string"
+            },
+            {
+              "id": "189a22e6-06a5-4ba7-bec6-32c3a50e6e98",
+              "name": "SLACK_URL",
+              "value": "https://<your-workspace>.slack.com/archives",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1488,
+        240
+      ],
+      "id": "b165402c-d2d7-4d25-ade1-c41c4808f05b",
+      "name": "SetVars"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Prepare a task as requested by {{ $json.user_name }} in channel {{ $json.channel_id }} {{ $json.is_thread ? ' (message is in thread, thread_root_id=' + $json.thread_root_id + ' — fetch the full thread via Slack conversations_replies first)' : '' }}\n\n{{ $json.message }}{{ $json.attachments_context && $json.attachments_context.trim().length > 0 ? '\\n\\nAdditional information from attachments:\\n' + $json.attachments_context : '' }}",
+        "options": {
+          "systemMessage": "=You're a professional task manager. You're proficient in setting tasks for DevOps, SRE engineers.\nAt the user's request, you need to prepare the data to create a task in Jira. You don't need to create the task yourself.\nDetermine the `subject area`; what does the task relate to? Use the Qdrant Vector Store tool to learn more about our infrastructure when needed.\nDefine the action that needs to be performed: create something, delete something, change something.\nThis could be a database, a cluster, a logging system, or a monitoring system.\n\n## Slack thread context\n- The Slack message metadata is provided as variables: is_in_thread = {{ $json.is_in_thread }}, thread_root_id = {{ $json.thread_root_id }}, channel_id = {{ $json.channel_id }}\n- If is_in_thread is true, the user's question is a reply in an existing Slack thread. BEFORE doing any other investigation step, fetch the full thread using the Slack tool conversations_replies with channel = {{ $json.channel_id }} and ts = {{ $json.thread_root_id }}. Read every reply in chronological order — they often contain prior investigation steps, shared logs, links to failing jobs / repositories / dashboards, decisions, and findings from teammates\n- Use the thread context to scope the investigation. Do NOT repeat work that was already done in the thread; build on it. If the thread already points to a specific repo, branch, job, service or root cause hypothesis, focus there first\n- Treat the latest message in the thread as the most up-to-date statement of the problem; earlier messages provide context but may be outdated\n- If is_in_thread is false, do NOT fetch thread history\n\nDetermine the `direction` and choose exactly one:\n- HighAvailability — availability of our services\n- Performance — performance of our services\n- Security — information security\n- CostManagement — cost management\n- Operations — routine operational activities\n- Observability — monitoring, logs, traces, alerts\n\nDetermine Slack channel name by id using Slack MCP\n\n## Response format\n**Write the description in the language in which the request was received!**\nReturn a single JSON object with EXACTLY these fields — no markdown, no code fences, no extra text:\n{\"summary\":\"<subject area>: <what needs to be done>\",\"description\":\"<1-3 sentences>\",\"label\":\"<one of the directions above>\",\"channel_name\":\"<Slack-channel-name>\"}\n\n## Example 1\nRequest: please create a small Postgres instance for the roulette service\nOutput:\n{\"summary\":\"Postgres: create database for roulette\",\"description\":\"Create small Postgres instances in stage and prod for the backend service my-service.\",\"label\":\"Operations\"}\n\n## Example 2\nRequest: please enable gRPC on Centrifugo and store the address in Vault\nOutput:\n{\"summary\":\"Centrifugo: enable gRPC\",\"description\":\"Enable gRPC in Centrifugo and add the address to Vault.\",\"label\":\"Operations\"}\n\n## Example 3\nRequest: replace the log collector from promtail to alloy — create a task\nOutput:\n{\"summary\":\"Logging: replace promtail with alloy\",\"description\":\"Replace the log collector from promtail to alloy.\",\"label\":\"Observability\"}\n\n## Important rules\n* Issue name and description must be written on english",
+          "maxIterations": 15
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1744,
+        240
+      ],
+      "id": "5ff15e8b-5c26-4bfd-874d-402719fd5824",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Use it to learn more about our infrastructure, alert rules and runbooks.",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "<your-infrastructure-qdrant-collection>",
+          "mode": "list",
+          "cachedResultName": "<your-infrastructure-qdrant-collection>"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        1920,
+        880
+      ],
+      "id": "cee272f3-b3a1-4f89-941f-8d0f8cca306b",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "o50PYyzSFxY0V7R8",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-2-preview"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        1072
+      ],
+      "id": "ae90091e-9cc0-46b1-80c0-a5719e0d18a4",
+      "name": "Embeddings Google Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "BAV50tB4x11iSv3t",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI Agent output (raw JSON or inside a markdown code fence),\n// merge with context from Read Incident Context and SetVars,\n// and build a Jira payload including a Slack permalink to the source message.\n\nfunction buildSlackPermalink(archivesBase, channelId, messageTs, options = {}) {\n  const { threadTs, isThread } = options;\n  if (!archivesBase || !channelId || !messageTs) return null;\n\n  const base = String(archivesBase).replace(/\\/+$/, '');\n  const ts = String(messageTs).trim();\n  const pTs = ts.startsWith('p') ? ts : `p${ts.replace('.', '')}`;\n\n  let url = `${base}/${channelId}/${pTs}`;\n\n  // Reply in thread: open the correct message inside the thread\n  if (isThread && threadTs && String(threadTs).trim() !== ts) {\n    url += `?thread_ts=${encodeURIComponent(String(threadTs).trim())}&cid=${encodeURIComponent(channelId)}`;\n  }\n\n  return url;\n}\n\nconst raw = $input.first().json.output ?? '';\nconst ctx = $('Read Incident Context').first().json;\nconst vars = $('SetVars').first().json;\n\nconst cleaned = String(raw)\n  .replace(/^\\s*```(?:json)?\\s*/i, '')\n  .replace(/\\s*```\\s*$/i, '')\n  .trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (err) {\n  throw new Error(`Failed to parse AI Agent output as JSON: ${err.message}. Raw output was: ${raw}`);\n}\n\nconst isThread = ctx.is_thread === true || ctx.is_thread === 'true';\n\nconst slackLink = buildSlackPermalink(\n  vars.SLACK_URL,\n  ctx.channel_id,\n  ctx.post_id,\n  {\n    isThread,\n    threadTs: ctx.thread_root_id,\n  },\n);\n\nconst sourceLines = [\n  '',\n  '---',\n  `*Source:* @${ctx.user_name || 'unknown'} in channel #${ctx.channel_name || parsed.channel_name || 'unknown'}`,\n];\n\nif (slackLink) {\n  sourceLines.push(`*Slack message link:* ${slackLink}`);\n}\n\nif (ctx.summary) {\n  sourceLines.push(`*Classification:* ${ctx.summary} (confidence: ${ctx.confidence ?? 'n/a'})`);\n}\n\nconst description = `${parsed.description || ''}\\n${sourceLines.join('\\n')}`;\n\nreturn [{\n  json: {\n    summary: parsed.summary || '(no summary)',\n    description,\n    label: parsed.label || 'Operations',\n    user_name: ctx.user_name,\n    on_call_user: ctx.on_call_user,\n    channel_id: ctx.channel_id,\n    post_id: ctx.post_id,\n    slack_message_link: slackLink,\n    agent_raw_output: raw,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2256,
+        240
+      ],
+      "id": "ceabab89-f509-4595-855f-24f026648646",
+      "name": "Parse Agent Output"
+    },
+    {
+      "parameters": {
+        "project": {
+          "__rl": true,
+          "value": "<your-jira-project-id>",
+          "mode": "list",
+          "cachedResultName": "<your-jira-project-name>"
+        },
+        "issueType": {
+          "__rl": true,
+          "value": "<your-jira-issue-type-id>",
+          "mode": "list",
+          "cachedResultName": "Task"
+        },
+        "summary": "={{ $json.summary }}",
+        "additionalFields": {
+          "description": "={{ $json.description }}",
+          "componentIds": [],
+          "labels": "={{ [$json.label] }}"
+        }
+      },
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [
+        2432,
+        240
+      ],
+      "id": "cefffbf8-230e-4279-bcb4-d20bcb3b7ff5",
+      "name": "Create an issue",
+      "credentials": {
+        "jiraSoftwareCloudApi": {
+          "id": "UCJCc5m9Dz9yGsl0",
+          "name": "Jira SW Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.5",
+          "mode": "list",
+          "cachedResultName": "gpt-5.5"
+        },
+        "builtInTools": {
+          "webSearch": {
+            "searchContextSize": "medium"
+          }
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1744,
+        432
+      ],
+      "id": "844dee5b-42cc-4b07-86fb-52558cbd581f",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "XedjbHsqkge0ycmt",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('SetVars').item.json.channel_id }}",
+          "mode": "id"
+        },
+        "text": "=Issue has been created <{{ $('SetVars').first().json.JIRA_URL }}/browse/{{ $('Create an issue').first().json.key }}|{{ $('Create an issue').first().json.key }}>: {{ $('Parse Agent Output').first().json.summary }}",
+        "otherOptions": {
+          "thread_ts": {
+            "replyValues": {
+              "thread_ts": "={{ $('SetVars').first().json.thread_root_id }}"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        2592,
+        240
+      ],
+      "id": "7a9b7958-f52d-4a53-8379-228dcb1a3579",
+      "name": "Send a message",
+      "webhookId": "bf87854b-8f2d-47a8-ae4c-f44604cd0e41",
+      "credentials": {
+        "slackApi": {
+          "id": "nu3n0nBPHyw3mdS8",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "<your-attachments-analyzer-subworkflow-id>",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/<your-attachments-analyzer-subworkflow-id>",
+          "cachedResultName": "AttachmentsAnalyzer"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "file_ids": "={{ $json.file_ids }}"
+          },
+          "matchingColumns": [
+            "file_ids"
+          ],
+          "schema": [
+            {
+              "id": "file_ids",
+              "displayName": "file_ids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        976,
+        240
+      ],
+      "id": "1a02393a-465f-4590-9d94-4af63de3fa0c",
+      "name": "Call 'attachmentsAnalyzer'",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1328,
+        240
+      ],
+      "id": "87a25367-a266-4ed3-bedc-ba99977686b3",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "https://<your-mcp-host>/slack/mcp",
+        "authentication": "bearerAuth",
+        "include": "selected",
+        "includeTools": [
+          "channels_list",
+          "conversations_history",
+          "conversations_replies",
+          "usergroups_list",
+          "users_search"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1776,
+        880
+      ],
+      "id": "e457fa94-7273-4f8e-97e7-61194b567646",
+      "name": "Slack",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "iFWTS5UMtoX8Mjwt",
+          "name": "Slack MCP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f41db3c2-d4c5-4ecd-b0e8-80ba6e0ed687",
+              "name": "attachments_context",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "53c39c4c-4ef6-49e4-8e85-046c526d34a5",
+              "name": "attachments_count",
+              "value": "0",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1152,
+        416
+      ],
+      "id": "a5f606d3-7459-4434-ad73-7552ea99621f",
+      "name": "Set: empty attachments"
+    },
+    {
+      "parameters": {
+        "content": "## Input Chain\n\n\n\n\n\n\n\n\n\n\n\n\n\n```\n[\n  {\n    \"message\": ,\n    \"post_id\": ,\n    \"channel_id\": ,\n    \"channel_name\": ,\n    \"user_name\": ,\n    \"user_id\": ,\n    \"file_ids\":,\n    \"category\": ,\n    \"confidence\": ,\n    \"summary\": ,\n    \"acknowledge\": ,\n    \"is_in_thread\":,\n    \"thread_root_id\": ,\n  }\n]\n```",
+        "height": 624,
+        "width": 368,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        496,
+        160
+      ],
+      "typeVersion": 1,
+      "id": "093fb7c7-0288-400b-9e06-2c41cd4a1a66",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Check attachments\nCalling a subworkflow to get context from attachments",
+        "height": 624,
+        "width": 688,
+        "color": "#42450C"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        912,
+        160
+      ],
+      "typeVersion": 1,
+      "id": "879133a6-643f-4e46-b29f-0dd30f86c3f6",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Request analisys",
+        "height": 624,
+        "width": 528,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1648,
+        160
+      ],
+      "typeVersion": 1,
+      "id": "3bf8e7c8-b280-4382-a798-9319a6a1c25b",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n## MCP servers\nAdd correct URLs for remote MCPs\nUse following mcp:\n* [slack-mcp](https://github.com/korotovsky/slack-mcp-server)",
+        "height": 432,
+        "width": 528,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1648,
+        816
+      ],
+      "typeVersion": 1,
+      "id": "e703d1e5-ba4e-4fd1-93ed-473d9961fcd5",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Overview\nThis is a sub-workflow that converts a free-form DevOps request posted in Slack into a properly formatted Jira task \n\n## Requirements\n* OpenRouter/OpenAI/Anthropic API key — for the chat model .\n* Jira API credentials — Cloud or Server. \n* Qdrant instance\n* MCP servers (see MCP section) .\n* Slack credentials.\n* `attachmentsAnalyzer` sub-workflow — must be present in the same n8n instance; analyzes files attached to the originating Slack message and returns a textual context.\n* `httpProbeTool` sub-workflow — provides the probe_url tool that the agent uses to verify reachability of external dependencies; must return structured\n* [Parent workflow]() — a classifier  that calls this workflow via Execute Workflow \n\n## How it works\n1. The workflow is triggered by `Execute Workflow Trigger`\n1. `ReadIncidentContext` logs the request and forwards the payload\n1. Call '`attachmentsAnalyzer` invokes a vision sub-workflow with the file_ids\n1. SetVars sets workflow-level constants\n1.  `AI Agent` builds the Jira payload. The system prompt\n1. `Parse Agent Output` safely parses the agent's output enriches the Jira description.\n1. `Create an issue` creates a Task in the configured project with the chosen label and component.\n1. `Send a message` replies in the original thread with a confirmation containing a clickable Jira link.\n\n## How to use\n* Deploy MCP servers\n* Configure credentials in the workflow\n* Edit `SetVars`\n* Edit `Create an issue` — pick your own Jira project, issue type and component.\n* Tune the system prompt in `AI Agent` — adjust the direction labels and the few-shot examples to match your team's taxonomy.\n* Import sibling sub-workflows:\n  * `attachmentsAnalyzer`\n  * `httpProbeTool` - for `probe_url` node tool\n* Connect a [parent classifier]() that calls this workflow via `Execute Workflow`\n",
+        "height": 816,
+        "width": 1104,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        496,
+        816
+      ],
+      "typeVersion": 1,
+      "id": "ac18cd60-5575-4b24-be58-ad95a2596d01",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Output chain",
+        "height": 624,
+        "width": 544,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2224,
+        160
+      ],
+      "typeVersion": 1,
+      "id": "59e8d458-2a30-4189-af39-774be2a950e7",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Read Incident Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Incident Context": {
+      "main": [
+        [
+          {
+            "node": "Call 'attachmentsAnalyzer'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetVars": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Create an issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an issue": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'attachmentsAnalyzer'": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set: empty attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "SetVars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set: empty attachments": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "6b886fc9-eaea-40be-b7f0-18b2018e8eed",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "<your-n8n-instance-id>"
+  },
+  "id": "uC2nhmiJc6uDkgqe",
+  "tags": []
+}
